@@ -16,9 +16,10 @@
 The Reconly script is a versatile subdomain reconnaissance tool that leverages various subdomain discovery techniques to help gather information about a target domain. This script is designed to automate the process of subdomain enumeration and analysis, making it easier for security professionals and penetration testers to gather valuable information about their targets.
 ## Dependencies
 - Go language:
-```sudo apt-get remove -y golang-go```
-```sudo apt autoremove -y```
-```sudo rm -rf /usr/bin/go
+```
+   sudo apt-get remove -y golang-go
+   sudo apt autoremove -y
+   sudo rm -rf /usr/bin/go
    sudo rm -rf /usr/local/go
    sudo rm -rf ~/go
    wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
@@ -26,9 +27,12 @@ The Reconly script is a versatile subdomain reconnaissance tool that leverages v
    sudo rm -rf go1.21.0.linux-amd64.tar.gz
    sudo cp -r $HOME/go /usr/local
    echo -e 'export GOPATH=$HOME/go\nexport PATH=$PATH:/usr/local/go/bin\nexport PATH=$PATH:$GOPATH/bin' >> $HOME/.profile
-   source ~/.profile``` 
+   source ~/.profile
+```
 - Put Go in `/usr/local/bin`:
-  `sudo cp $HOME/go/bin/gau /usr/local/bin`
+```
+sudo cp $HOME/go/bin/gau /usr/local/bin
+```
 
 ## Features
 
@@ -43,12 +47,16 @@ The Reconly script is a versatile subdomain reconnaissance tool that leverages v
 ## Usage
 
 1. Clone or download this repository.
-     `git clone https://AbdelzaherKH/reconly.git`
-2. Make sure you have the required dependencies installed (e.g., subfinder, assetfinder, amass, httprobe, gau).
-3. Run the script using:
-     `cd reconly`
-     `chmod +x reconly.sh`
-     `./reconly.sh -d <target_domain>`
+  ```
+     git clone https://AbdelzaherKH/reconly.git
+  ```
+3. Make sure you have the required dependencies installed (e.g., subfinder, assetfinder, amass, httprobe, gau).
+4. Run the script using:
+   ```
+      cd reconly
+      chmod +x reconly.sh
+      ./reconly.sh -d <target_domain>
+   ```
 
 ## Contributing
 
