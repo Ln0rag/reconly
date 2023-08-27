@@ -14,15 +14,30 @@
 ## Description
 
 The Reconly script is a versatile subdomain reconnaissance tool that leverages various subdomain discovery techniques to help gather information about a target domain. This script is designed to automate the process of subdomain enumeration and analysis, making it easier for security professionals and penetration testers to gather valuable information about their targets.
+## Dependencies
+- Go language:
+  `sudo apt-get remove -y golang-go`
+  `sudo apt autoremove -y`
+  `sudo rm -rf /usr/bin/go`
+  `sudo rm -rf /usr/local/go`
+  `sudo rm -rf ~/go`
+  `wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz`
+  `tar -xzf go1.21.0.linux-amd64.tar.gz`
+  `sudo rm -rf go1.21.0.linux-amd64.tar.gz`
+  `sudo cp -r $HOME/go /usr/local`
+  `echo -e 'export GOPATH=$HOME/go\nexport PATH=$PATH:/usr/local/go/bin\nexport PATH=$PATH:$GOPATH/bin' >> $HOME/.profile`
+  `source ~/.profile` 
+- Put Go in `/usr/local/bin`:
+  `sudo cp $HOME/go/bin/gau /usr/local/bin`
 
 ## Features
 
 - Subdomain discovery using multiple tools:
-  - subfinder: Discover subdomains from various public sources.
-  - assetfinder: Find subdomains using external data sources.
-  - amass: Comprehensive subdomain enumeration (passive & active modes).
-- Live subdomain validation using httprobe.
-- Extracting URLs from web pages using gau (GetAllUrls).
+  - [subfinder](https://github.com/projectdiscovery/subfinder): Discover subdomains from various public sources.
+  - [assetfinder](https://github.com/tomnomnom/assetfinder): Find subdomains using external data sources.
+  - [amass](https://github.com/owasp-amass/amass): Comprehensive subdomain enumeration (passive & active modes).
+- Live subdomain validation using [httprobe](https://github.com/tomnomnom/httprobe).
+- Extracting URLs from web pages using [gau](https://github.com/lc/gau) (GetAllUrls).
 - Organized output files in the `output` directory.
 
 ## Usage
