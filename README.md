@@ -33,6 +33,9 @@ The Reconly script is a versatile subdomain reconnaissance tool that leverages v
 ```
 sudo cp $HOME/go/bin/gau /usr/local/bin
 ```
+## Preview
+
+![](https://raw.githubusercontent.com/AbdelzaherKH/reconly/main/Preview.png)
 
 ## Features
 
