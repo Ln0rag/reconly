@@ -16,13 +16,13 @@
 The Reconly script is a versatile subdomain reconnaissance tool that leverages various subdomain discovery techniques to help gather information about a target domain. This script is designed to automate the process of subdomain enumeration and analysis, making it easier for security professionals and penetration testers to gather valuable information about their targets.
 ## Dependencies
 - Go language:
-  `sudo apt-get remove -y golang-go
-   sudo apt autoremove -y`
-  `sudo rm -rf /usr/bin/go`
-  `sudo rm -rf /usr/local/go`
-  `sudo rm -rf ~/go`
-  `wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz`
-  `tar -xzf go1.21.0.linux-amd64.tar.gz`
+  `sudo apt-get remove -y golang-go`;
+  `sudo apt autoremove -y`;
+  `sudo rm -rf /usr/bin/go`;
+  `sudo rm -rf /usr/local/go`;
+  `sudo rm -rf ~/go`;
+  `wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz`;
+  `tar -xzf go1.21.0.linux-amd64.tar.gz`;
   `sudo rm -rf go1.21.0.linux-amd64.tar.gz`
   `sudo cp -r $HOME/go /usr/local`
   `echo -e 'export GOPATH=$HOME/go\nexport PATH=$PATH:/usr/local/go/bin\nexport PATH=$PATH:$GOPATH/bin' >> $HOME/.profile`
