@@ -68,4 +68,4 @@ Contributions are welcome! If you have ideas for improvements, new features, or 
 
 **Disclaimer:** This script is intended for educational and ethical purposes only. Ensure you have the necessary permissions before using this tool on any target.
 
-For inquiries, contact: [Telegram](https://t.me/AbdelzaherKH)
+For inquiries, contact: [Telegram](https://t.me/Ln0rag)
