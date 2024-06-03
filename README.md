@@ -31,7 +31,7 @@ The Reconly script is a versatile subdomain reconnaissance tool that leverages v
 ```
 - Put Go in `/usr/local/bin`:
 ```
-sudo cp $HOME/go/bin/gau /usr/local/bin
+sudo cp $HOME/go/bin/go /usr/local/bin
 ```
 ## Preview
 
@@ -51,7 +51,7 @@ sudo cp $HOME/go/bin/gau /usr/local/bin
 
 1. Clone or download this repository.
   ```
-     git clone https://github.com/AbdelzaherKH/reconly.git
+     git clone https://github.com/Ln0rag/reconly.git
   ```
 3. Make sure you have the required dependencies installed (e.g., subfinder, assetfinder, amass, httprobe, gau).
 4. Run the script using:
