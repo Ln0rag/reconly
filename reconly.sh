@@ -23,7 +23,7 @@ echo -e "$color_bright_cyan
                     ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝ v1
 $color_reset"
 
-echo -e "$color_white                                   github.com/AbdelzaherKH$color_reset"
+echo -e "$color_white                                   github.com//Ln0rag$color_reset"
 echo -e ""
 
 #Parse command line options
