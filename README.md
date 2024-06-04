@@ -16,26 +16,34 @@
 The Reconly script is a versatile subdomain reconnaissance tool that leverages various subdomain discovery techniques to help gather information about a target domain. This script is designed to automate the process of subdomain enumeration and analysis, making it easier for security professionals and penetration testers to gather valuable information about their targets.
 ## Dependencies
 - Go language:
-```
-   sudo apt-get remove -y golang-go
-   sudo apt autoremove -y
-   sudo rm -rf /usr/bin/go
-   sudo rm -rf /usr/local/go
-   sudo rm -rf ~/go
-   wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
-   tar -xzf go1.21.0.linux-amd64.tar.gz
-   sudo rm -rf go1.21.0.linux-amd64.tar.gz
-   sudo cp -r $HOME/go /usr/local
-   echo -e 'export GOPATH=$HOME/go\nexport PATH=$PATH:/usr/local/go/bin\nexport PATH=$PATH:$GOPATH/bin' >> $HOME/.profile
-   source ~/.profile
-```
-- Put Go in `/usr/local/bin`:
-```
+```bash
+sudo apt remove golang-go -y
+sudo apt autoremove -y
+sudo rm -rf /usr/bin/go
+sudo rm -rf /usr/local/go
+sudo rm -rf ~/go
+
+wget https://go.dev/dl/go1.XX.X.linux-amd64.tar.gz
+tar -xzf go1.XX.X.linux-amd64.tar.gz
+sudo rm -rf go1.XX.X.linux-amd64.tar.gz
+
+sudo cp -r $HOME/go /usr/local
+
+export GOPATH="$HOME/go"
+export PATH="$PATH:/usr/local/go/bin:$GOPATH/bin"
+echo 'export GOPATH=$HOME/go' >> ~/.profile
+echo 'export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin' >> ~/.profile
+
+source ~/.profile
+
+sudo ln -s /usr/local/go/bin/go /usr/local/bin/go
+
 sudo cp $HOME/go/bin/go /usr/local/bin
 ```
+
 ## Preview
 
-![](https://raw.githubusercontent.com/AbdelzaherKH/reconly/main/Preview.png)
+![](https://raw.githubusercontent.com/Ln0rag/reconly/main/Preview.png)
 
 ## Features
 
