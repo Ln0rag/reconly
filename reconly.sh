@@ -23,7 +23,7 @@ echo -e "$color_bright_cyan
                     ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝ v1
 $color_reset"
 
-echo -e "$color_white                                   github.com//Ln0rag$color_reset"
+echo -e "$color_white                                   github.com/Ln0rag$color_reset"
 echo -e ""
 
 #Parse command line options
@@ -60,7 +60,7 @@ echo -e "$color_bright_cyan""Tools Arsenal:$color_reset"
 #Tool Descriptions
 echo -e "- subfinder:   Subdomain discovery from various public sources."
 echo -e "- assetfinder: Find subdomains using external data sources."
-echo -e "- amass:       Comprehensive subdomain enumeration (passive & active)."
+#echo -e "- amass:       Comprehensive subdomain enumeration (passive & active)."
 echo -e "- httprobe:    Check live subdomains responding to HTTP requests."
 echo -e "- gau:         (GetAllUrls) Extract URLs from web pages, including JS files."
 
@@ -87,14 +87,13 @@ run_command assetfinder --subs-only $domain > "$output_dir/assetfinder.txt"
 echo -e "Assetfinder found $(wc -l "$output_dir/assetfinder.txt")"
 
 #Running Amass => Passive mode
-echo -e "$color_bright_yellow
-Running Amass => Passive mode:$color_reset"
-run_command amass enum --passive -silent -d $domain
-run_command amass db -names -d $domain -o "$output_dir/amassPassive.txt"
-echo -e "Amass found $(wc -l "$output_dir/amassPassive.txt")"
+#echo -e "$color_bright_yellow
+#Running Amass => Passive mode:$color_reset"
+#run_command amass enum --passive -silent -d $domain -o "$output_dir/amassPassive.txt"
+#echo -e "Amass found $(wc -l "$output_dir/amassPassive.txt")"
 
 #ALL IN ONE:
-run_command cat "$output_dir/subfinder.txt" "$output_dir/assetfinder.txt" "$output_dir/amassPassive.txt" | sort -u > "$output_dir/subdomains.txt"
+run_command cat "$output_dir/subfinder.txt" "$output_dir/assetfinder.txt" | sort -u > "$output_dir/subdomains.txt"
 echo -e "$color_bright_red
 Merging & Sorting $(wc -l "$output_dir/subdomains.txt")$color_reset"
 
@@ -111,4 +110,3 @@ echo -e "Hint:  png,jpg,gif,jpeg are blacklisted"
 run_command cat "$output_dir/liveSubdomains.txt" | gau --threads 5 --blacklist png,jpg,gif,jpeg > "$output_dir/getallurls.txt"
 echo -e "output in $output_dir/getallurls.txt"
 echo -e "gau has finished"
-
