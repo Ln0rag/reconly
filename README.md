@@ -14,43 +14,12 @@
 ## Description
 
 The Reconly script is a versatile subdomain reconnaissance tool that leverages various subdomain discovery techniques to help gather information about a target domain. This script is designed to automate the process of subdomain enumeration and analysis, making it easier for security professionals and penetration testers to gather valuable information about their targets.
-## Dependencies
-- Go language:
-```bash
-sudo apt remove golang-go -y
-sudo apt autoremove -y
-sudo rm -rf /usr/bin/go
-sudo rm -rf /usr/local/go
-sudo rm -rf ~/go
-
-wget https://go.dev/dl/go1.XX.X.linux-amd64.tar.gz
-tar -xzf go1.XX.X.linux-amd64.tar.gz
-sudo rm -rf go1.XX.X.linux-amd64.tar.gz
-
-sudo cp -r $HOME/go /usr/local
-
-export GOPATH="$HOME/go"
-export PATH="$PATH:/usr/local/go/bin:$GOPATH/bin"
-echo 'export GOPATH=$HOME/go' >> ~/.profile
-echo 'export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin' >> ~/.profile
-
-source ~/.profile
-
-sudo ln -s /usr/local/go/bin/go /usr/local/bin/go
-
-sudo cp $HOME/go/bin/go /usr/local/bin
-```
-
-## Preview
-
-![](https://raw.githubusercontent.com/Ln0rag/reconly/main/Preview.png)
 
 ## Features
 
 - Subdomain discovery using multiple tools:
   - [subfinder](https://github.com/projectdiscovery/subfinder): Discover subdomains from various public sources.
   - [assetfinder](https://github.com/tomnomnom/assetfinder): Find subdomains using external data sources.
-  - [amass](https://github.com/owasp-amass/amass): Comprehensive subdomain enumeration (passive & active modes).
 - Live subdomain validation using [httprobe](https://github.com/tomnomnom/httprobe).
 - Extracting URLs from web pages using [gau](https://github.com/lc/gau) (GetAllUrls).
 - Organized output files in the `output` directory.
@@ -61,7 +30,7 @@ sudo cp $HOME/go/bin/go /usr/local/bin
   ```
      git clone https://github.com/Ln0rag/reconly.git
   ```
-3. Make sure you have the required dependencies installed (e.g., subfinder, assetfinder, amass, httprobe, gau).
+3. Make sure you have the required dependencies installed (e.g., subfinder, assetfinder, httprobe, gau).
 4. Run the script using:
    ```
       cd reconly
