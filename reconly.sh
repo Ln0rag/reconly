@@ -99,9 +99,9 @@ Merging & Sorting $(wc -l "$output_dir/subdomains.txt")$color_reset"
 
 #Running httprobe
 echo -e "$color_bright_cyan
-Running httporbe:$color_reset"
+Running httprobe:$color_reset"
 run_command cat "$output_dir/subdomains.txt"  | httprobe -c 50 > "$output_dir/liveSubdomains.txt"
-echo -e "Httporbe found $(wc -l "$output_dir/liveSubdomains.txt")"
+echo -e "Httprobe found $(wc -l "$output_dir/liveSubdomains.txt")"
 
 #Running gau
 echo -e "$color_bright_magenta
