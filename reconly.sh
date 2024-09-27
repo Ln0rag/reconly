@@ -118,7 +118,7 @@ echo -e "- eyeWitness:  EyeWitness is designed to take screenshots of websites."
 echo -e "- gau:         (GetAllUrls) Extract URLs from web pages, including JS files."
 
 # Check for required tools
-for tool in subfinder findomain shosubgo amass httprobe eyeWitness gau ; do
+for tool in subfinder findomain shosubgo amass httprobe eyewitness gau ; do
     if ! command -v "$tool" &> /dev/null; then
         echo -e "${color_bright_red}Error: $tool is not installed.${color_reset}"
         exit 1
@@ -197,6 +197,8 @@ echo -e "Hint:  png,jpg,gif,jpeg are blacklisted"
 run_command cat "$output_dir/liveSubdomains.txt" | gau --threads 5 --blacklist png,jpg,gif,jpeg > "$output_dir/getallurls.txt"
 echo -e "output in $output_dir/getallurls.txt"
 echo -e "gau has finished"
+
+#Dirctory Fuzzing
 
 
 #FINISHED
