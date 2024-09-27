@@ -1,6 +1,6 @@
 #!/bin/bash                               
 
-#Define different color codes
+# Define different color codes
 color_reset="\e[0m"
 color_bright_cyan="\e[36;1m"
 color_bright_red="\e[31;1m"
@@ -8,12 +8,13 @@ color_bright_yellow="\e[33;1m"
 color_bright_green="\e[32;1m"
 color_bright_magenta="\e[35;1m"
 
-#Variables
+# Variables
 output_dir="$HOME/reconly/output"
 domain=""
 shodanAPI=""
 wordlist=""
 eyewitness_output_dir="$output_dir/eyewitness"
+use_amass=""
 
 # Function to display help
 display_help() {
@@ -25,8 +26,8 @@ display_help() {
     exit 0
 }
 
+# Greeting banner
 echo -e "$color_bright_cyan
-
       ██████╗  ███████╗  ██████╗  ██████╗  ███╗   ██╗ ██╗   ██╗   ██╗
       ██╔══██╗ ██╔════╝ ██╔════╝ ██╔═══██╗ ████╗  ██║ ██║   ╚██╗ ██╔╝
       ██████╔╝ █████╗   ██║      ██║   ██║ ██╔██╗ ██║ ██║    ╚████╔╝
@@ -73,22 +74,21 @@ if [[ ! "$domain" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
     exit 1
 fi
 
-#Check if domain is provided
+# Check if domain is provided
 if [ -z "$domain" ]; then
-    echo "Domain is required. Example:  domain.com"
+    echo "Domain is required. Example: domain.com"
     exit 1
 fi
 
-#Check if API key is provided
+# Check if API key is provided
 if [ -z "$shodanAPI" ]; then
     read -p "Enter your Shodan API Key: " shodanAPI
 fi
 
-#Check if wordlist is provided
+# Check if wordlist is provided
 if [ -z "$wordlist" ]; then
     read -p "Enter the path to your wordlist file for subdomain brute-forcing: " wordlist
     wordlist="${wordlist/#\~/$HOME}"  # Expand ~ to $HOME
-
 fi
 
 # Validate wordlist file
@@ -97,7 +97,7 @@ if [ ! -f "$wordlist" ]; then
     exit 1
 fi
 
-#Creating output files directory if not exists
+# Creating output files directory if not exists
 if [ ! -d "$output_dir" ]; then
     mkdir "$output_dir"
 fi
@@ -105,26 +105,31 @@ fi
 echo -e "$color_bright_cyan
 Output files are stored in $output_dir$color_reset"
 
-#Tools Arsenal
-echo -e "$color_bright_cyan""Tools Arsenal:$color_reset"
+# Ask if the user wants to use Amass
+read -p "Do you want to use Amass for subdomain enumeration? (y/n): " amass_choice
+if [[ "$amass_choice" =~ ^[Yy]$ ]]; then
+    use_amass="yes"
+else
+    use_amass="no"
+fi
 
-#Tool Descriptions
+# Tools Arsenal
+echo -e "$color_bright_cyan""Tools Arsenal:$color_reset"
 echo -e "- subfinder:   Subdomain discovery from various public sources."
 echo -e "- findomain:   The fastest and complete solution for domain recognition."
-echo -e "- shosubgo:    Small tool to Grab subdomains using Shodan api."
-echo -e "- amass:       Comprehensive subdomain enumeration (passive & active)."
+echo -e "- shosubgo:    Small tool to Grab subdomains using Shodan API."
+echo -e "- amass:       Comprehensive subdomain enumeration (if selected)."
 echo -e "- httprobe:    Check live subdomains responding to HTTP requests."
 echo -e "- eyeWitness:  EyeWitness is designed to take screenshots of websites."
 echo -e "- gau:         (GetAllUrls) Extract URLs from web pages, including JS files."
 
 # Check for required tools
-for tool in subfinder findomain shosubgo amass httprobe eyewitness gau ; do
+for tool in subfinder findomain shosubgo httprobe eyewitness gau ; do
     if ! command -v "$tool" &> /dev/null; then
         echo -e "${color_bright_red}Error: $tool is not installed.${color_reset}"
         exit 1
     fi
 done
-
 
 # Function to handle command execution
 run_command() {
@@ -136,50 +141,58 @@ run_command() {
     fi
 }
 
-#Running subfinder
+# Running subfinder
 echo -e "$color_bright_green
 Running subfinder:$color_reset"
-run_command subfinder -silent -d $domain -o "$output_dir/subfinder.txt" > /dev/null
+run_command subfinder -silent -d "$domain" -o "$output_dir/subfinder.txt" > /dev/null
 echo -e "Subfinder found $(wc -l "$output_dir/subfinder.txt")"
 
-#Running Findomain
+# Running Findomain
 echo -e "$color_bright_yellow
 Running findomain:$color_reset"
-run_command findomain -t $domain -u "$output_dir/findomain.txt" > /dev/null
+run_command findomain -t "$domain" -u "$output_dir/findomain.txt" > /dev/null
 echo -e "Findomain found $(wc -l "$output_dir/findomain.txt")"
 
-#Running Shosubgo
+# Running Shosubgo
 echo -e "$color_bright_green
 Running Shosubgo:$color_reset"
-run_command shosubgo -d $domain -s $shodanAPI> "$output_dir/shosubgo.txt"
+run_command shosubgo -d "$domain" -s "$shodanAPI" > "$output_dir/shosubgo.txt"
 echo -e "Shosubgo found $(wc -l "$output_dir/shosubgo.txt")"
 
-#Running Amass => Passive mode
-echo -e "$color_bright_yellow
-Running Amass => Passive mode:$color_reset"
-run_command amass enum --passive -silent -d $domain -o "$output_dir/amassPassive.txt"
-echo -e "Amass found $(wc -l "$output_dir/amassPassive.txt")"
+# Running Amass (only if chosen by the user)
+if [ "$use_amass" = "yes" ]; then
+    echo -e "$color_bright_yellow
+    Running Amass => Passive mode:$color_reset"
+    run_command amass enum --passive -silent -d "$domain" -o "$output_dir/amassPassive.txt"
+    echo -e "Amass found $(wc -l "$output_dir/amassPassive.txt")"
 
-#Running Amass => Active mode
-echo -e "$color_bright_magenta
-Running Amass => Active mode:$color_reset"
-run_command amass enum -d $domain -brute -silent -w $wordlist -o "$output_dir/amassActive.txt"
-echo -e "Amass found $(wc -l "$output_dir/amassActive.txt")"
+    echo -e "$color_bright_magenta
+    Running Amass => Active mode:$color_reset"
+    run_command amass enum -d "$domain" -brute -silent -w "$wordlist" -o "$output_dir/amassActive.txt"
+    echo -e "Amass found $(wc -l "$output_dir/amassActive.txt")"
+fi
 
-#ALL IN ONE:
-run_command cat "$output_dir/subfinder.txt" "$output_dir/findomain.txt" "$output_dir/shosubgo.txt" "$output_dir/amassPassive.txt" "$output_dir/amassActive.txt" | sort -u > "$output_dir/ALLSUBs.txt"
+# ALL IN ONE: Merge and sort subdomains, handling missing files
+{
+  [ -f "$output_dir/subfinder.txt" ] && cat "$output_dir/subfinder.txt"
+  [ -f "$output_dir/findomain.txt" ] && cat "$output_dir/findomain.txt"
+  [ -f "$output_dir/shosubgo.txt" ] && cat "$output_dir/shosubgo.txt"
+  [ "$use_amass" = "yes" ] && [ -f "$output_dir/amassPassive.txt" ] && cat "$output_dir/amassPassive.txt"
+  [ "$use_amass" = "yes" ] && [ -f "$output_dir/amassActive.txt" ] && cat "$output_dir/amassActive.txt"
+} | sort -u > "$output_dir/ALLSUBs.txt"
+
 echo -e "$color_bright_red
-Merging & Sorting $(wc -l "$output_dir/ALLSUBs.txt")$color_reset"
+Merging & Sorting $(wc -l < "$output_dir/ALLSUBs.txt")$color_reset"
 
-#Not Live Subdomains:
-run_command comm -23 <(sort "$output_dir/ALLSUBs.txt") <(sort "$output_dir/liveSubdomains.txt") > "$output_dir/NotLive_SUBs.txt"
-Merging & Sorting $(wc -l "$output_dir/NotLive_SUBs.txt")$color_reset
-
-#Running httprobe
+# Running httprobe
 echo -e "$color_bright_cyan
 Running httprobe:$color_reset"
 run_command cat "$output_dir/ALLSUBs.txt"  | httprobe -c 50 > "$output_dir/liveSubdomains.txt"
 echo -e "Httprobe found $(wc -l "$output_dir/liveSubdomains.txt")"
+
+#Not Live Subdomains:
+run_command comm -23 <(sort "$output_dir/ALLSUBs.txt") <(sort "$output_dir/liveSubdomains.txt") > "$output_dir/NotLive_SUBs.txt"
+Merging & Sorting $(wc -l "$output_dir/NotLive_SUBs.txt")$color_reset
 
 # Running EyeWitness
 echo -e "$color_bright_green
@@ -190,26 +203,25 @@ fi
 run_command eyewitness --web -f "$output_dir/liveSubdomains.txt" -d "$eyewitness_output_dir" --no-prompt
 echo -e "EyeWitness has captured screenshots and saved the report in $eyewitness_output_dir"
 
-#Running gau
+# Running gau
 echo -e "$color_bright_magenta
 Running gau(GetAllUrls)$color_reset"
 echo -e "Hint:  png,jpg,gif,jpeg are blacklisted"
 run_command cat "$output_dir/liveSubdomains.txt" | gau --threads 5 --blacklist png,jpg,gif,jpeg > "$output_dir/getallurls.txt"
-echo -e "output in $output_dir/getallurls.txt"
+echo -e "Output in $output_dir/getallurls.txt"
 echo -e "gau has finished"
 
-#Dirctory Fuzzing
-
-
-#FINISHED
+# FINISHED
 echo -e "$color_bright_cyan\nSummary of Results:$color_reset"
 echo -e "Subdomains found in subfinder: $(wc -l < "$output_dir/subfinder.txt")"
 echo -e "Subdomains found in findomain: $(wc -l < "$output_dir/findomain.txt")"
 echo -e "Subdomains found in shosubgo: $(wc -l < "$output_dir/shosubgo.txt")"
-echo -e "Subdomains found in Amass (Passive): $(wc -l < "$output_dir/amassPassive.txt")"
-echo -e "Subdomains found in Amass (Active): $(wc -l < "$output_dir/amassActive.txt")"
+if [ "$use_amass" = "yes" ]; then
+    echo -e "Subdomains found in Amass (Passive): $(wc -l < "$output_dir/amassPassive.txt")"
+    echo -e "Subdomains found in Amass (Active): $(wc -l < "$output_dir/amassActive.txt")"
+fi
 echo -e "Live subdomains found: $(wc -l < "$output_dir/liveSubdomains.txt")"
 echo -e "Total unique subdomains found: $(wc -l < "$output_dir/ALLSUBs.txt")"
-echo -e "eyewitness output in: $eyewitness_output_dir"
-echo -e "gau found: $(wc -l < "$output_dir/getallurls.txt") url"
+echo -e "EyeWitness output in: $eyewitness_output_dir"
+echo -e "gau found: $(wc -l < "$output_dir/getallurls.txt") URLs"
 echo -e "$color_bright_green\nAll tasks completed successfully!${color_reset}"
