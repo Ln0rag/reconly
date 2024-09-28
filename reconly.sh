@@ -205,8 +205,6 @@ Running gau(GetAllUrls)$color_reset"
 echo -e "Hint:  png,jpg,gif,jpeg are blacklisted"
 run_command cat "$output_dir/6_liveSubdomains.txt" | gau --threads 5 --blacklist png,jpg,gif,jpeg > "$output_dir/8_getallurls.txt"
 echo -e "Output in $output_dir/8_getallurls.txt"
-echo -e "gau has finished"
-
 
 ##########################################################################################################################
 # FINISHED
