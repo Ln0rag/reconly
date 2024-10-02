@@ -13,7 +13,7 @@ output_dir="$HOME/Desktop"
 domain=""
 shodanAPI=""
 wordlist=""
-eyewitness_output_dir="$output_dir/7_eyewitness"
+gowitness_output_dir="$output_dir/7_gowitness"
 use_amass=""
 
 # Function to display help
@@ -120,11 +120,11 @@ echo -e "- findomain:   The fastest and complete solution for domain recognition
 echo -e "- shosubgo:    Small tool to Grab subdomains using Shodan API."
 echo -e "- amass:       Comprehensive subdomain enumeration (if selected)."
 echo -e "- httprobe:    Check live subdomains responding to HTTP requests."
-echo -e "- eyeWitness:  EyeWitness is designed to take screenshots of websites."
+echo -e "- gowitness: 	a golang, web screenshot utility using Chrome Headless"
 echo -e "- gau:         (GetAllUrls) Extract URLs from web pages, including JS files."
 
 # Check for required tools
-for tool in subfinder findomain shosubgo httprobe eyewitness gau ; do
+for tool in subfinder findomain shosubgo httprobe gowitness gau ; do
     if ! command -v "$tool" &> /dev/null; then
         echo -e "${color_bright_red}Error: $tool is not installed.${color_reset}"
         exit 1
@@ -190,14 +190,14 @@ Running httprobe:$color_reset"
 run_command cat "$output_dir/5_ALLSUBs.txt"  | httprobe -c 50 > "$output_dir/6_liveSubdomains.txt"
 echo -e "Httprobe found $(wc -l "$output_dir/6_liveSubdomains.txt")"
 
-# Running EyeWitness
+# Running Gowitness
 echo -e "$color_bright_green
-Running EyeWitness to capture screenshots:$color_reset"
-if [ ! -d "$eyewitness_output_dir" ]; then
-    mkdir "$eyewitness_output_dir"
+Running Gowitness to capture screenshots:$color_reset"
+if [ ! -d "$gowitness_output_dir" ]; then
+    mkdir "$gowitness_output_dir"
 fi
-run_command eyewitness --web -f "$output_dir/6_liveSubdomains.txt" -d "$eyewitness_output_dir" --no-prompt --timeout 10 
-echo -e "EyeWitness has captured screenshots and saved the report in $eyewitness_output_dir"
+run_command gowitness scan file -f "$output_dir/6_liveSubdomains.txt" --threads 50 --ports-large --write-screenshots --screenshot-path "$output_dir/7gowitness"
+echo -e "Gowitness has captured screenshots and saved the report in $gowitness_output_dir"
 
 # Running gau
 echo -e "$color_bright_magenta
@@ -220,6 +220,6 @@ fi
 
 echo -e "Live subdomains found: $(wc -l < "$output_dir/6_liveSubdomains.txt")"
 echo -e "Total unique subdomains found: $(wc -l < "$output_dir/5_ALLSUBs.txt")"
-echo -e "EyeWitness output in: $eyewitness_output_dir"
+echo -e "gowitness output in: $gowitness_output_dir"
 echo -e "gau found: $(wc -l < "$output_dir/8_getallurls.txt") URLs"
 echo -e "$color_bright_green\nAll tasks completed successfully!${color_reset}"
