@@ -196,7 +196,7 @@ Running Gowitness to capture screenshots:$color_reset"
 if [ ! -d "$gowitness_output_dir" ]; then
     mkdir "$gowitness_output_dir"
 fi
-run_command gowitness scan file -f "$output_dir/6_liveSubdomains.txt" --threads 50 --ports-large --write-screenshots --screenshot-path "$gowitness_output_dir"
+run_command gowitness scan file -f "$output_dir/6_liveSubdomains.txt" --threads 50 --ports-small --write-screenshots --screenshot-path "$gowitness_output_dir"
 echo -e "Gowitness has captured screenshots and saved the report in $gowitness_output_dir"
 
 # Running gau
