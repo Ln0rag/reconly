@@ -14,6 +14,8 @@
 ## Description
 
 The Reconly script is a versatile subdomain reconnaissance tool that leverages various subdomain discovery techniques to help gather information about a target domain. This script is designed to automate the process of subdomain enumeration and analysis, making it easier for security professionals and penetration testers to gather valuable information about their targets.
+Also, it apart from ![Recon.xmind](https://github.com/Ln0rag/reconly/blob/main/Recon.xmind) MindMap.
+![Recon.xmind.png](/Recon.xmind.png)
 
 ## Usage
 
