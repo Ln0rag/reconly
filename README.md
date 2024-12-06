@@ -1,10 +1,6 @@
 # reconly
 
-  ______ _______ _______  _____  __   _        __   __
- |_____/ |______ |       |     | | \  | |        \_/  
- |    \_ |______ |_____  |_____| |  \_| |_____    |   
-
-
+![preview](/preview.png)
 
 **Note:** This script is currently under development and is uploaded to reserve the name "reconly" While the script is functional, it is being improved and expanded. Your feedback and contributions are welcome!
 
