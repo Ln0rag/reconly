@@ -1,12 +1,9 @@
 # reconly
 
+  ______ _______ _______  _____  __   _        __   __
+ |_____/ |______ |       |     | | \  | |        \_/  
+ |    \_ |______ |_____  |_____| |  \_| |_____    |   
 
-      ██████╗  ███████╗  ██████╗  ██████╗  ███╗   ██╗ ██╗   ██╗   ██╗
-      ██╔══██╗ ██╔════╝ ██╔════╝ ██╔═══██╗ ████╗  ██║ ██║   ╚██╗ ██╔╝
-      ██████╔╝ █████╗   ██║      ██║   ██║ ██╔██╗ ██║ ██║    ╚████╔╝
-      ██╔══██╗ ██╔══╝   ██║      ██║   ██║ ██║╚██╗██║ ██║     ╚██╔╝
-      ██║  ██║ ███████╗ ╚██████╗ ╚██████╔╝ ██║ ╚████║ ███████╗ ██║
-      ╚═╝  ╚═╝ ╚══════╝  ╚═════╝  ╚═════╝  ╚═╝  ╚═══╝ ╚══════╝ ╚═╝
 
 
 **Note:** This script is currently under development and is uploaded to reserve the name "reconly" While the script is functional, it is being improved and expanded. Your feedback and contributions are welcome!
@@ -15,19 +12,18 @@
 
 The Reconly script is a versatile subdomain reconnaissance tool that leverages various subdomain discovery techniques to help gather information about a target domain. This script is designed to automate the process of subdomain enumeration and analysis, making it easier for security professionals and penetration testers to gather valuable information about their targets.
 Also, it apart from [Recon.xmind](https://github.com/Ln0rag/reconly/blob/main/Recon.xmind) MindMap.
+Also, implemented as .md file: [Recon-MindMap.md](https://github.com/Ln0rag.reconly/blob/main/Recon-MindMap.md)
 ![Recon.xmind.png](/recon.xmind.png)
+
 
 ## Usage
 
-1. Clone or download this repository.
   ```
-     git clone https://github.com/Ln0rag/reconly.git
-  ```
-2. Run the script using:
-   ```
-      cd reconly
-      chmod +x reconly.sh
-      ./reconly.sh -d <target_domain> -k <shodanAPI KEY> -w <worddlist path for subdomain bruteForcing>
+    git clone https://github.com/Ln0rag/reconly.git
+    cd reconly
+    chmod +x reconly.sh
+    sudo mv reconly.sh /usr/local/bin/reconly.sh
+    reconly.sh -d <target-domain>
    ```
 
 ## Contributing
