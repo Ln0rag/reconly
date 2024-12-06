@@ -29,7 +29,7 @@ ___
 git clone https://github.com/Ln0rag/reconly.git
 cd reconly
 chmod +x reconly.sh
-sudo mv reconly.sh /opt/bin/reconly.sh
+sudo mv reconly.sh /usr/local/bin/reconly.sh
 reconly.sh -d <target-domain>
 ```
 
