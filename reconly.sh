@@ -14,7 +14,6 @@ domain=""
 shodanAPI=""
 wordlist=""
 gowitness_output_dir="$output_dir/gowitness"
-use_amass=""
 use_shodan=""
 
 # display help
@@ -83,22 +82,11 @@ fi
 # Ask if the user wants to use Shodan
 read -p "Do you want to search in Shodan? (y/n): " use_shodan
 if [[ "$use_shodan" =~ ^[Yy]$ ]]; then
-    read -p "Enter your Shodan API Key: " shodanAPI
-fi
-
-# Ask if the user wants to use subdomain enumeration
-read -p "Do you want to use subdomain enumeration? (y/n): " use_amass
-if [[ "$use_amass" =~ ^[Yy]$ ]]; then
-    read -p "Enter the path to your wordlist file for subdomain brute-forcing: " wordlist
-    wordlist="${wordlist/#\~/$HOME}"  # Expand ~ to $HOME
-    
-    # Validate wordlist file
-    if [ ! -f "$wordlist" ]; then
-        echo "Wordlist file not found at '$wordlist'."
-        exit 1
+    # Only prompt for API key if it wasn't provided as a command line argument
+    if [ -z "$shodanAPI" ]; then
+        read -p "Enter your Shodan API Key: " shodanAPI
     fi
 fi
-
 
 echo -e "$color_bright_cyan
 Output files are stored in $output_dir$color_reset"
@@ -108,13 +96,12 @@ echo -e "$color_bright_cyan""Tools Arsenal:$color_reset"
 echo -e "- subfinder:   Subdomain discovery from various public sources."
 echo -e "- findomain:   The fastest and complete solution for domain recognition."
 echo -e "- shosubgo:    Small tool to Grab subdomains using Shodan API (if selected)."
-echo -e "- amass:       Comprehensive subdomain enumeration."
 echo -e "- httprobe:    Check live subdomains responding to HTTP requests."
 echo -e "- gowitness:   A golang, web screenshot utility using Chrome Headless"
 echo -e "- gau:         (GetAllUrls) Extract URLs from web pages, including JS files."
 
 # Check for required tools
-for tool in subfinder findomain shosubgo amass httprobe gowitness gau ; do
+for tool in subfinder findomain shosubgo httprobe gowitness gau ; do
     if ! command -v "$tool" &> /dev/null; then
         echo -e "${color_bright_red}Error: $tool is not installed.${color_reset}"
         exit 1
@@ -143,27 +130,12 @@ Running findomain:$color_reset"
 run_command findomain -t "$domain" -u "$output_dir/findomain.txt" > /dev/null
 echo -e "Findomain found $(wc -l "$output_dir/findomain.txt")"
 
-# Running Shosubgo
-echo -e "$color_bright_yellow
+# Running Shosubgo (only if Shodan was selected)
+if [[ "$use_shodan" =~ ^[Yy]$ ]] && [ -n "$shodanAPI" ]; then
+    echo -e "$color_bright_yellow
 Running Shosubgo:$color_reset"
-if [ -n "$shodanAPI" ]; then
     run_command shosubgo -d "$domain" -s "$shodanAPI" > "$output_dir/shosubgo.txt"
     echo -e "Shosubgo found $(wc -l "$output_dir/shosubgo.txt")"
-fi
-
-# Running Amass (Passive mode always, Active mode based on user input)
-echo -e "$color_bright_yellow
-Running Amass => Passive mode:$color_reset"
-run_command amass enum --passive -silent -d "$domain" -o "$output_dir/amassPassive.txt"
-echo -e "Amass found $(wc -l "$output_dir/amassPassive.txt")"
-
-# Ask if the user wants to use Active mode (subdomain brute-forcing)
-read -p "Do you want to use Amass Active mode (subdomain brute-forcing)? (y/n): " amass_active_choice
-if [[ "$amass_active_choice" =~ ^[Yy]$ ]]; then
-    echo -e "$color_bright_yellow
-    Running Amass => Active mode:$color_reset"
-    run_command amass enum -d "$domain" -brute -silent -w "$wordlist" -o "$output_dir/amassActive.txt"
-    echo -e "Amass found $(wc -l "$output_dir/amassActive.txt")"
 fi
 
 # ALL IN ONE: Merge and sort subdomains, handling missing files
@@ -171,8 +143,6 @@ fi
   [ -f "$output_dir/subfinder.txt" ] && cat "$output_dir/subfinder.txt"
   [ -f "$output_dir/findomain.txt" ] && cat "$output_dir/findomain.txt"
   [ -f "$output_dir/shosubgo.txt" ] && cat "$output_dir/shosubgo.txt"
-  [ -f "$output_dir/amassPassive.txt "] && cat "$output_dir/amassPassive.txt"
-  [ "$use_amass" = "yes" ] && [ -f "$output_dir/amassActive.txt" ] && cat "$output_dir/amassActive.txt"
 } | sort -u > "$output_dir/AllSubs.txt"
 
 echo -e "$color_bright_red
