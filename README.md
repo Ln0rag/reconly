@@ -7,11 +7,11 @@
 ## Usage
 
   ```
-    git clone https://github.com/Ln0rag/reconly.git
-    cd reconly
-    chmod +x reconly.sh
-    sudo mv reconly.sh /usr/local/bin/reconly.sh
-    cd .. && sudo rm -r ~/reconly
+    sudo wget -q \
+      https://raw.githubusercontent.com/Ln0rag/reconly/main/reconly.sh \
+      -O /usr/local/bin/reconly.sh
+
+    sudo chmod +x /usr/local/bin/reconly.sh
     reconly.sh -h
    ```
 
