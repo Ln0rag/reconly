@@ -202,10 +202,10 @@ if [[ -z "$p_brute" || "$p_brute" =~ ^[Yy]$ ]]; then
             echo -e "${color_red}[!] File not found.${color_reset}"
         done
     else
-        echo -e "Enter SecLists base path [Default: /media/DATA/SecLists]: \c"
+        echo -e "Enter seclists base path [Default: /media/DATA/seclists]: \c"
         read seclists_base
         if [ -z "$seclists_base" ]; then
-            seclists_base="/media/DATA/SecLists"
+            seclists_base="/media/DATA/seclists"
         fi
 
         DNS_WORDLIST="$seclists_base/Discovery/DNS/subdomains-top1million-5000.txt"
