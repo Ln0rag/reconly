@@ -140,7 +140,8 @@ exec > >(trap "" INT TERM; tee -a reconly.log) 2>&1
 
 use_shodan="n"; SHODAN_KEY=""
 use_github="n"; GITHUB_KEY=""
-use_brute="n"; DNS_WORDLIST=""; PARAM_WORDLIST=""; DIR_WORDLIST=""
+use_dns_brute="n"; use_fuzzing="n"
+DNS_WORDLIST=""; PARAM_WORDLIST=""; DIR_WORDLIST=""
 
 if [ "$START_PHASE" -le 1 ]; then
     echo -e "Do you want to search in ${color_white}Shodan${color_reset} ? (Y/n) [Default: Y]: \c"
@@ -156,7 +157,7 @@ if [ "$START_PHASE" -le 1 ]; then
         echo -e "${color_cyan}Skipping Shodan search...${color_reset}\n"
     fi
 
-    echo -e "Do you want to search in ${color_white}Github${color_reset}? (Y/n) [Default: Y]: \c"
+    echo -e "Do you want to search in ${color_white}Github${color_reset} ? (Y/n) [Default: Y]: \c"
     read p_github
     if [[ -z "$p_github" || "$p_github" =~ ^[Yy]$ ]]; then
         read -p "Please Enter a valid Github Token: " GITHUB_KEY
@@ -170,16 +171,29 @@ if [ "$START_PHASE" -le 1 ]; then
     fi
 fi
 
-echo -e "Do you want to Actively Bruteforce (Subdomains, Params, Dirs)? (Y/n) [Default: Y]: \c"
-read p_brute
-if [[ -z "$p_brute" || "$p_brute" =~ ^[Yy]$ ]]; then
-    use_brute="y"
+echo -e "Do you want to ${color_white}Actively Bruteforce Subdomains${color_reset} ? (Y/n) [Default: Y]: \c"
+read p_dns
+if [[ -z "$p_dns" || "$p_dns" =~ ^[Yy]$ ]]; then
+    use_dns_brute="y"
+else
+    echo -e "${color_cyan}Skipping DNS bruteforcing...${color_reset}\n"
+fi
+
+echo -e "Do you want to ${color_white}Fuzz Parameters & Directories${color_reset} (Takes longer)? (Y/n) [Default: Y]: \c"
+read p_fuzz
+if [[ -z "$p_fuzz" || "$p_fuzz" =~ ^[Yy]$ ]]; then
+    use_fuzzing="y"
+else
+    echo -e "${color_cyan}Skipping Fuzzing...${color_reset}\n"
+fi
+
+if [[ "$use_dns_brute" == "y" || "$use_fuzzing" == "y" ]]; then
     echo -e "\n${color_magenta}[Hint] Wordlist Configuration${color_reset}"
     echo -e "Do you want to use custom individual wordlist paths? (y/N): \c"
     read custom_wl
     
     if [[ "$custom_wl" =~ ^[Yy]$ ]]; then
-        if [ "$START_PHASE" -le 2 ]; then
+        if [[ "$use_dns_brute" == "y" && "$START_PHASE" -le 2 ]]; then
             while true; do
                 echo -e "Enter path for DNS bruteforce: \c"
                 read DNS_WORDLIST
@@ -188,19 +202,21 @@ if [[ -z "$p_brute" || "$p_brute" =~ ^[Yy]$ ]]; then
             done
         fi
         
-        while true; do
-            echo -e "Enter path for Parameters bruteforce: \c"
-            read PARAM_WORDLIST
-            [ -f "$PARAM_WORDLIST" ] && break
-            echo -e "${color_red}[!] File not found.${color_reset}"
-        done
+        if [[ "$use_fuzzing" == "y" ]]; then
+            while true; do
+                echo -e "Enter path for Parameters bruteforce: \c"
+                read PARAM_WORDLIST
+                [ -f "$PARAM_WORDLIST" ] && break
+                echo -e "${color_red}[!] File not found.${color_reset}"
+            done
 
-        while true; do
-            echo -e "Enter path for Directories bruteforce: \c"
-            read DIR_WORDLIST
-            [ -f "$DIR_WORDLIST" ] && break
-            echo -e "${color_red}[!] File not found.${color_reset}"
-        done
+            while true; do
+                echo -e "Enter path for Directories bruteforce: \c"
+                read DIR_WORDLIST
+                [ -f "$DIR_WORDLIST" ] && break
+                echo -e "${color_red}[!] File not found.${color_reset}"
+            done
+        fi
     else
         echo -e "Enter seclists base path [Default: /media/DATA/seclists]: \c"
         read seclists_base
@@ -208,22 +224,26 @@ if [[ -z "$p_brute" || "$p_brute" =~ ^[Yy]$ ]]; then
             seclists_base="/media/DATA/seclists"
         fi
 
-        DNS_WORDLIST="$seclists_base/Discovery/DNS/subdomains-top1million-5000.txt"
-        PARAM_WORDLIST="$seclists_base/Discovery/Web-Content/burp-parameter-names.txt"
-        DIR_WORDLIST="$seclists_base/Discovery/Web-Content/common.txt"
+        if [[ "$use_dns_brute" == "y" ]]; then
+            DNS_WORDLIST="$seclists_base/Discovery/DNS/subdomains-top1million-5000.txt"
+            if [ ! -f "$DNS_WORDLIST" ]; then echo -e "${color_red}[!] Warning: File not found -> $DNS_WORDLIST${color_reset}"; fi
+        fi
 
-        for wordlist in "$DNS_WORDLIST" "$PARAM_WORDLIST" "$DIR_WORDLIST"; do
-            if [ ! -f "$wordlist" ]; then
-                echo -e "${color_red}[!] Warning: File not found -> $wordlist${color_reset}"
-            fi
-        done
+        if [[ "$use_fuzzing" == "y" ]]; then
+            PARAM_WORDLIST="$seclists_base/Discovery/Web-Content/burp-parameter-names.txt"
+            DIR_WORDLIST="$seclists_base/Discovery/Web-Content/common.txt"
+            if [ ! -f "$PARAM_WORDLIST" ]; then echo -e "${color_red}[!] Warning: File not found -> $PARAM_WORDLIST${color_reset}"; fi
+            if [ ! -f "$DIR_WORDLIST" ]; then echo -e "${color_red}[!] Warning: File not found -> $DIR_WORDLIST${color_reset}"; fi
+        fi
     fi
+    
     echo -e "${color_green}[+] Wordlists configured successfully!${color_reset}"
-    echo -e "${color_cyan}  - DNS Target Path    : ${color_white}$DNS_WORDLIST${color_reset}"
-    echo -e "${color_cyan}  - Parameters Path    : ${color_white}$PARAM_WORDLIST${color_reset}"
-    echo -e "${color_cyan}  - Directories Path   : ${color_white}$DIR_WORDLIST${color_reset}\n"
-else
-    echo -e "${color_cyan}Skipping bruteforcing...${color_reset}\n"
+    if [[ "$use_dns_brute" == "y" ]]; then echo -e "${color_cyan}  - DNS Target Path    : ${color_white}$DNS_WORDLIST${color_reset}"; fi
+    if [[ "$use_fuzzing" == "y" ]]; then 
+        echo -e "${color_cyan}  - Parameters Path    : ${color_white}$PARAM_WORDLIST${color_reset}"
+        echo -e "${color_cyan}  - Directories Path   : ${color_white}$DIR_WORDLIST${color_reset}"
+    fi
+    echo -e ""
 fi
 
 cat << 'EOF' > resolvers.txt
@@ -303,7 +323,7 @@ fi
 # [Phase 2] Active DNS Bruteforce
 
 if [ "$START_PHASE" -le 2 ]; then
-    if [[ "$use_brute" == "y" ]]; then
+    if [[ "$use_dns_brute" == "y" ]]; then
         echo -e "\n${color_yellow}=== [Phase 2] Active DNS Bruteforcing ===${color_reset}"
         echo -e ""
         echo -e "${color_cyan}[~]$ puredns bruteforce $DNS_WORDLIST $DOMAIN (4 Levels)...${color_reset}"
@@ -413,10 +433,9 @@ fi
 
 # [Phase 6] Fuzzing
 
-if [ "$START_PHASE" -le 6 ] && [[ "$use_brute" == "y" ]]; then
+if [ "$START_PHASE" -le 6 ] && [[ "$use_fuzzing" == "y" ]]; then
     mkdir -p fuzz_params fuzz_dirs
     
-    # 1. API Parameter Fuzzing
     echo -e "\n${color_yellow}=== [Phase 6.A] Stealth Fuzzing >> ffuf > param ===${color_reset}"
     echo -e ""
     if [ -s api_endpoints.txt ]; then
@@ -442,7 +461,6 @@ if [ "$START_PHASE" -le 6 ] && [[ "$use_brute" == "y" ]]; then
         echo -e "${color_red}[!] api_endpoints.txt is empty! Skipping parameter fuzzing.${color_reset}"
     fi
 
-    # 2. Directory Fuzzing
     echo -e "\n${color_yellow}=== [Phase 6.B] Stealth Fuzzing >> ffuf > Dir ===${color_reset}"
     echo -e ""
     if [ -s live-URLs.txt ]; then
