@@ -11,7 +11,7 @@
     cd reconly
     chmod +x reconly.sh
     sudo mv reconly.sh /usr/local/bin/reconly.sh
-    reconly.sh -d <target-domain>
+    reconly.sh -h
    ```
 
 ## Contributing
