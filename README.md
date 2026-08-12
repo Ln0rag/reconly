@@ -1,6 +1,6 @@
 # reconly
 
-![preview](/preview.png)
+![preview](/screenshot.png)
 
 **Note:** This script is currently under development and is uploaded to reserve the name "reconly" While the script is functional, it is being improved and expanded. Your feedback and contributions are welcome!
 
