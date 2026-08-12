@@ -11,6 +11,7 @@
     cd reconly
     chmod +x reconly.sh
     sudo mv reconly.sh /usr/local/bin/reconly.sh
+    cd .. && sudo rm -r ~/reconly
     reconly.sh -h
    ```
 
