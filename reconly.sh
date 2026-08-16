@@ -379,7 +379,7 @@ if [ "$START_PHASE" -le 3 ]; then
     echo -e ""
     if [ -s all-subs.txt ]; then
         echo -e "${color_cyan}[~]$ cat all-subs.txt | httpx -silent -threads 200 -status-code -tech-detect -title -location${color_reset}"
-        cat all-subs.txt | httpx -silent -threads 200 -status-code -tech-detect -title -location | tee >(awk '{print $1}' > live-URLs.txt)
+        cat all-subs.txt | ~/go/bin/httpx -silent -threads 200 -status-code -tech-detect -title -location | tee >(awk '{print $1}' > live-URLs.txt)
     else
         echo -e "${color_red}[!] all-subs.txt is empty! Skipping httpx.${color_reset}"
         > live-URLs.txt
