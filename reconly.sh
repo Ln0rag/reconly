@@ -390,8 +390,9 @@ if [ "$START_PHASE" -le 3 ]; then
     echo -e "\n${color_yellow}PHASE_3: Crawling${color_reset}"
     echo -e "\n${color_yellow}#-----------------------------------------------------------------------------------${color_reset}"
     if [ -s live-urls.txt ]; then
-        echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat live-urls.txt | katana -d 2 -rl 10 -c 5 -silent | tee crawled-urls.txt${color_reset}"
-        cat live-urls.txt | katana -d 2 -rl 10 -c 5 -silent | tee crawled-urls.txt | roller
+        echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat live-urls.txt | katana -d 3 -rl 10 -c 5 -silent | tee crawled-urls.txt${color_reset}"
+        cat live-urls.txt | katana -d 3 -rl 10 -c 5 -silent | tee crawled-urls.txt | roller
+        echo -e ""
     else
         echo -e "${color_red}live-urls.txt Not Found${color_reset}"
     fi
@@ -1151,3 +1152,180 @@ elif command -v xdg-open &> /dev/null; then xdg-open "$HTML_FILE" &> /dev/null &
 elif command -v open &> /dev/null; then open "$HTML_FILE" &> /dev/null &
 else echo "No Browser found";
 fi
+
+
+#-----------------------------------------------------------------------------------
+#	AI EXPORT - Markdowns for LLM analysis
+#-----------------------------------------------------------------------------------
+
+ai_export() {
+	local out_dir="$SESSION_DIR/ai-export"
+	local cap=150
+	local max_bytes=60000
+
+	mkdir -p "$out_dir"
+
+	_sec() {
+		local title="$1" file="$2" cap="${3:-$cap}" note="${4:-}"
+		echo "### $title"
+		[ -n "$note" ] && echo "> $note"
+		echo ""
+		if [ ! -s "$file" ]; then
+			echo "_No data._"
+			echo ""
+			return
+		fi
+		local total
+		total=$(wc -l < "$file" | tr -d '[:space:]')
+		echo '```'
+		head -n "$cap" "$file"
+		echo '```'
+		if [ "$total" -gt "$cap" ]; then
+			echo ""
+			echo "_... truncated (showing $cap of $total lines)_"
+		fi
+		echo ""
+	}
+
+
+	_split_if_large() {
+		local f="$1" bytes base
+		bytes=$(wc -c < "$f" | tr -d '[:space:]')
+		[ "$bytes" -le "$max_bytes" ] && return 0
+		base="${f%.md}"
+		csplit -z -s -f "${base}_part-" -b "%02d.md" "$f" '/^## /' '{*}' 2>/dev/null
+		rm -f "$f"
+		echo -e "${color_yellow}  split: $(basename "$base") → $(ls "${base}_part-"*.md 2>/dev/null | wc -l) parts${color_reset}"
+	}
+
+	echo -e "\n${color_yellow}#----- AI Export -----${color_reset}"
+
+
+	cat > "$out_dir/00-PROMPT.md" <<'PROMPT_EOF'
+# Prompt — Bug Bounty Recon Analysis
+
+You are a senior offensive security engineer helping with an **authorized** bug bounty engagement.
+All findings below come from in-scope assets collected during a sanctioned recon run.
+
+Data sources: subfinder, assetfinder, findomain, alterx, dnsx, httpx, katana, gau,
+waybackurls, trufflehog, and custom regex hunting on JS files.
+
+**Severity tiers:**
+- **Tier A** = high-confidence secrets / credentials (verify before acting)
+- **Tier B** = strong signal (S3, BaaS, source maps, basic-auth URLs)
+- **Tier C** = recon intel (paths, endpoints, comments, IPs)
+
+I will paste report files one at a time. When I'm done, produce:
+
+1. **Prioritized Triage** — table of top 10 items:
+   | Rank | Finding | Exploitability | Test approach | Est. time |
+
+2. **Test Plans for Top 5** — for each:
+   - Vulnerability class (IDOR / auth bypass / SSRF / info disclosure / etc.)
+   - Exact `curl` command(s) (or Burp workflow)
+   - Expected: vulnerable vs safe response
+
+3. **Likely False Positives** — which findings look like noise/placeholders? Why?
+
+4. **Missing Angles** — what attack surfaces look undertested? What recon would you add?
+
+5. **Quick Wins** — findings verifiable in <5 min with highest payout chance.
+
+Be concise. Skip generic methodology. Prioritize real-world impact.
+PROMPT_EOF
+
+
+	{
+		echo "# Report 01 — Overview & Tier A Findings"
+		echo ""
+		echo "## Target"
+		echo ""
+		echo "| Field | Value |"
+		echo "|---|---|"
+		echo "| Domain | \`$DOMAIN\` |"
+		echo "| Scan time | $TIMESTAMP |"
+		echo ""
+		echo "## Coverage"
+		echo ""
+		echo "| Metric | Count |"
+		echo "|---|---|"
+		echo "| Subdomains | $(wc -l < all-subs-final.txt 2>/dev/null | tr -d '[:space:]') |"
+		echo "| Live hosts | $(wc -l < live-urls.txt 2>/dev/null | tr -d '[:space:]') |"
+		echo "| Archived URLs | $(wc -l < archive-urls.txt 2>/dev/null | tr -d '[:space:]') |"
+		echo "| JS files analyzed | $(find js-files -name '*.js' 2>/dev/null | wc -l | tr -d '[:space:]') |"
+		echo "| Sensitive files | $(wc -l < sensitive-files.txt 2>/dev/null | tr -d '[:space:]') |"
+		echo "| **Tier A total** | **$TIER_A_TOTAL** |"
+		echo ""
+		echo "## Tier A — High-Confidence Findings"
+		echo ""
+		echo "> These are secrets/credentials. Verify scope before use."
+		echo ""
+		_sec "Trufflehog"            js-findings/trufflehog.txt        80
+		_sec "Cloud Tokens"          js-findings/cloud-tokens.txt      60
+		_sec "Auth Tokens / JWT"     js-findings/auth-tokens.txt       60
+		_sec "Private Keys"          js-findings/rsa-keys.txt          20
+		_sec "Database Credentials"  js-findings/db-creds.txt          40
+		_sec "Azure Keys"            js-findings/azure-keys.txt        20
+		_sec "Service Accounts"      js-findings/service-accounts.txt  20
+		_sec "OAuth / App IDs"       js-findings/oauth-configs.txt     40
+		_sec "Presigned URLs"        js-findings/presigned-urls.txt    40
+	} > "$out_dir/01-tier-a.md"
+	_split_if_large "$out_dir/01-tier-a.md"
+
+
+	{
+		echo "# Report 02 — Strong Signal & Recon Intel"
+		echo ""
+		echo "## Tier B — Strong Signal"
+		echo ""
+		_sec "S3 Buckets"            js-findings/s3-buckets.txt        40
+		_sec "BaaS URLs"             js-findings/baas-urls.txt         40
+		_sec "Basic Auth URLs"       js-findings/basic-auth.txt        30
+		_sec "Source Maps"           js-findings/source-maps.txt       30
+		echo ""
+		echo "## Tier C — Recon Intelligence"
+		echo ""
+		_sec "Hidden API Paths"      js-findings/hidden-paths-mapped.txt 120 "Format: path<TAB>hosts"
+		_sec "API Endpoints"         api-endpoints.txt                 80
+		_sec "Internal Hosts"        js-findings/internal-hosts.txt    40
+		_sec "Debug Endpoints"       js-findings/debug-endpoints.txt   30
+		_sec "GraphQL Ops"           js-findings/graphql.txt           40
+		_sec "DOM Sinks"             js-findings/dom-sinks.txt         40
+		_sec "Dev Comments"          js-findings/dev-comments.txt      40
+		_sec "Emails"                js-findings/emails.txt            30
+		_sec "WebSockets"            js-findings/websockets.txt        30
+		_sec "IP Addresses"          js-findings/ip-addresses.txt      30
+		_sec "Generic Secrets"       js-findings/generic-secrets.txt   50
+	} > "$out_dir/02-tier-bc.md"
+	_split_if_large "$out_dir/02-tier-bc.md"
+
+
+	{
+		echo "# Report 03 — Infrastructure"
+		echo ""
+		_sec "Subdomains"            all-subs-final.txt                120
+		_sec "Live URLs"             live-urls.txt                     120
+		_sec "Permutations (new)"    perms-new.txt                     60
+		_sec "URLs with Params"      urls-with-params.txt              80
+		_sec "Sensitive Files"       sensitive-files.txt               60
+		_sec "JS URLs"               js-urls.txt                       80
+		_sec "External URLs"         external-urls.txt                 60
+	} > "$out_dir/03-infrastructure.md"
+	_split_if_large "$out_dir/03-infrastructure.md"
+
+
+	echo ""
+	echo -e "${color_green}AI export ready → $out_dir/${color_reset}"
+	for f in "$out_dir"/*.md; do
+		[ -f "$f" ] || continue
+		printf "  %-30s %6s KB\n" "$(basename "$f")" "$(( $(wc -c < "$f") / 1024 ))"
+	done
+	echo ""
+	echo -e "${color_cyan}How to use:${color_reset}"
+	echo -e "  1. Open chat with any LLM (DeepSeek, Qwen, GLM, Claude, GPT)"
+	echo -e "  2. Paste ${color_yellow}00-PROMPT.md${color_reset} first"
+	echo -e "  3. Then paste each report file one by one (01 → 02 → 03)"
+	echo -e "  4. Analyze now"
+}
+
+ai_export
