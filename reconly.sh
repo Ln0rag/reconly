@@ -4,13 +4,13 @@ export LC_ALL=C
 set -o pipefail
 
 #	Colors
-color_reset="\e[0m"
-color_cyan="\e[36;1m"
-color_red="\e[31;1m"
-color_yellow="\e[33;1m"
-color_green="\e[32;1m"
-color_magenta="\e[35;1m"
-color_white="\e[97;1m"
+color_reset="\033[0m"
+color_cyan="\033[36;1m"
+color_red="\033[31;1m"
+color_yellow="\033[33;1m"
+color_green="\033[32;1m"
+color_magenta="\033[35;1m"
+color_white="\033[97;1m"
 
 #	Config (edit here)
 JS_THREADS=5
@@ -27,8 +27,7 @@ REDACT=0
 
 #	Ctrl + c
 trap_ctrlc() {
-    echo -e "\n${color_red}Aborting scan${color_reset}"
-    echo -e "${color_yellow}Cleaning up temporary files::${color_reset}"
+    echo -e "\n${color_red}Scan halted - Cleanup complete${color_reset}"
     if [[ -n "$SESSION_DIR" && -d "$SESSION_DIR" ]]; then
         cd "$SESSION_DIR" || exit
         rm -f all-urls-temp.txt pages-temp.txt perms-temp.txt .prettier-list .js-urls-dedup.txt .js-done-urls.txt .js-pending.txt 2>/dev/null
@@ -243,7 +242,7 @@ hunt() {
     [ "$HAVE_RG" -eq 1 ] && tool_name="rg -a -n -P -o"
     local shown="$tool_name -e '$regex' js-files/"
     [ -n "$exclude" ] && shown+=" | grep -v -i -P '$exclude'"
-    printf '%b%s%b\n' "${color_red}RUNNING:: ${color_reset}${color_cyan}" "$shown → js-findings/$outfile" "${color_reset}"
+    printf '%b%s%b\n' "${color_red}RUNNING:: ${color_reset}${color_cyan}" "$shown → js-findings/$outfile" "${color_reset}" >&2
 
     local raw
     if [ "$HAVE_RG" -eq 1 ]; then
@@ -273,6 +272,7 @@ hunt() {
             }
             printf "{\"file\":\"%s\",\"line\":\"%s\",\"type\":\"%s\",\"match\":\"%s\"}\n", esc(file), esc(line), esc(type), esc(m)
         }' "js-findings/$outfile" >> js-findings/findings.jsonl
+        echo -e ""
     else
         printf '%b0 findings%b\n' "${color_yellow}" "${color_reset}"
         echo -e ""
@@ -390,8 +390,8 @@ if [ "$START_PHASE" -le 3 ]; then
     echo -e "\n${color_yellow}PHASE_3: Crawling${color_reset}"
     echo -e "\n${color_yellow}#-----------------------------------------------------------------------------------${color_reset}"
     if [ -s live-urls.txt ]; then
-        echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat live-urls.txt | katana -d 3 -rl 10 -c 5 -silent | tee crawled-urls.txt${color_reset}"
-        cat live-urls.txt | katana -d 3 -rl 10 -c 5 -silent | tee crawled-urls.txt | roller
+        echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat live-urls.txt | katana -d 4 -rl 10 -c 5 -silent | tee crawled-urls.txt${color_reset}"
+        cat live-urls.txt | katana -d 4 -rl 10 -c 5 -silent | tee crawled-urls.txt | roller
         echo -e ""
     else
         echo -e "${color_red}live-urls.txt Not Found${color_reset}"
@@ -427,32 +427,36 @@ if [ "$START_PHASE" -le 4 ]; then
     } | sort -u > all-urls-temp.txt
 
     if [ -s all-urls-temp.txt ]; then
-        echo -e "${color_cyan}Extracting In-Scope URLs::${color_reset}"
-        echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat all-urls-temp.txt | grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" | sort -u > all-urls.txt${color_reset}"
+        echo -e "${color_green}Extracting In-Scope URLs::${color_reset}"
+        echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat all-urls-temp.txt | grep -E '^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)' | sort -u > all-urls.txt${color_reset}"
         cat all-urls-temp.txt | grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" | sort -u > all-urls.txt
         echo -e "Done and saved in all-urls.txt"
         
         echo -e ""
         
-        echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat all-urls-temp.txt | grep -vE "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" | sort -u > external-urls.txt${color_reset}"
+        echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat all-urls-temp.txt | grep -vE '^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)' | sort -u > external-urls.txt${color_reset}"
         cat all-urls-temp.txt | grep -vE "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" | sort -u > external-urls.txt
         rm -f all-urls-temp.txt
         echo -e "Done and saved in external-urls.txt"
         
         echo -e ""
 
-        echo -e "${color_cyan}Extracting Parameters, JS, APIs, and Sensitive Files::${color_reset}"
+        echo -e "${color_green}Extracting Parameters, JS, APIs, and Sensitive Files::${color_reset}"
         echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat all-urls.txt | grep '=' | sort -u > urls-with-params.txt${color_reset}"
         cat all-urls.txt | grep '=' | sort -u > urls-with-params.txt
+        echo -e "Done and saved in urls-with-params.txt"
         echo -e ""
         echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat all-urls.txt | grep -E '\.js(\?|$)' | sort -u > js-urls.txt${color_reset}"
         cat all-urls.txt | grep -E "\.js(\?|$)" | sort -u > js-urls.txt
+        echo -e "Done and saved in js-urls.txt"
         echo -e ""
         echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat all-urls.txt | grep -E '\.(xls|xml|xlsx|json|pdf|sql|doc|docx|pptx|txt|zip|tar\.gz|tgz|bak|7z|rar|log|cache|secret|db|backup|yml|gz|config|csv|yaml|md|md5|tar|xz|7zip|p12|pem|key|crt|csr|sh|pl|py|java|class|jar|war|ear|sqlitedb|sqlite3|dbf|db3|accdb|mdb|sqlcipher|gitignore|env|ini|conf|properties|plist|cfg)(\?|$)' | sort -u > sensitive-files.txt${color_reset}"
         cat all-urls.txt | grep -E "\.(xls|xml|xlsx|json|pdf|sql|doc|docx|pptx|txt|zip|tar\.gz|tgz|bak|7z|rar|log|cache|secret|db|backup|yml|gz|config|csv|yaml|md|md5|tar|xz|7zip|p12|pem|key|crt|csr|sh|pl|py|java|class|jar|war|ear|sqlitedb|sqlite3|dbf|db3|accdb|mdb|sqlcipher|gitignore|env|ini|conf|properties|plist|cfg)(\?|$)" | sort -u > sensitive-files.txt
+        echo -e "Done and saved in sensitive-files.txt"
         echo -e ""
         echo -e "${color_red}RUNNING::${color_reset}${color_cyan} cat all-urls.txt | grep -E '\b(api|v[0-9]+|graphql|rest|endpoint|ajax)\b' | grep -E -v '\.(css|js)(\?|$)' | sort -u > api-endpoints.txt${color_reset}"
         cat all-urls.txt | grep -E "\b(api|v[0-9]+|graphql|rest|endpoint|ajax)\b" | grep -E -v "\.(css|js)(\?|$)" | sort -u > api-endpoints.txt
+        echo -e "Done and saved in api-endpoints.txt"
     else
         echo -e "${color_red}No URLs found to filter.${color_reset}"
         > all-urls.txt; > external-urls.txt; > urls-with-params.txt; > js-urls.txt; > sensitive-files.txt; > api-endpoints.txt
@@ -481,7 +485,6 @@ if [ "$START_PHASE" -le 5 ] && [ "$HAVE_GREP_P" -eq 1 ]; then
         : > js-findings/findings.jsonl
 
         exec 200>"$SESSION_DIR/.js-echo.lock"
-        export JS_LOCK_FILE="$SESSION_DIR/.js-echo.lock"
 
         sort -u js-urls.txt | tr -d '\r' | awk -F'?' '!seen[$1]++' | awk 'NF' > .js-urls-dedup.txt
         EXPECTED_JS=$(wc -l < .js-urls-dedup.txt | tr -d '[:space:]')
@@ -512,7 +515,7 @@ if [ "$START_PHASE" -le 5 ] && [ "$HAVE_GREP_P" -eq 1 ]; then
 
 
         if [ -s all-urls.txt ]; then
-            echo -e "\n${color_cyan}Downloading pages & extracting inline scripts::${color_reset}"
+            echo -e "\n${color_green}Downloading pages & extracting inline scripts::${color_reset}"
             CANDIDATE_PAGES=$(grep -vE '\.(js|css|png|jpe?g|gif|svg|ico|woff2?|ttf|map|json|xml|pdf|zip|mp4|mp3|avi|mov|webp)(\?|$)' all-urls.txt | awk 'NF' | sort -u | wc -l | tr -d '[:space:]')
             grep -vE '\.(js|css|png|jpe?g|gif|svg|ico|woff2?|ttf|map|json|xml|pdf|zip|mp4|mp3|avi|mov|webp)(\?|$)' all-urls.txt | awk 'NF' | sort -u | head -n "$MAX_PAGES" > pages-temp.txt
             PAGE_COUNT=$(wc -l < pages-temp.txt | tr -d '[:space:]')
@@ -551,7 +554,7 @@ if [ "$START_PHASE" -le 5 ] && [ "$HAVE_GREP_P" -eq 1 ]; then
                     fi
                 done < pages-temp.txt
                 rm -f pages-temp.txt
-                echo -e "${color_green}Pages scanned: $PAGE_COUNT | Inline scripts captured: $INLINE_COUNT${color_reset}"
+                echo -e "${color_cyan}Pages scanned: $PAGE_COUNT | Inline scripts captured: $INLINE_COUNT${color_reset}"
             else
                 echo -e "${color_yellow}No pages to scan for inline scripts${color_reset}"
             fi
@@ -559,7 +562,7 @@ if [ "$START_PHASE" -le 5 ] && [ "$HAVE_GREP_P" -eq 1 ]; then
 
 
         if command -v npx &> /dev/null; then
-            echo -e "\n${color_cyan}Formatting JS with prettier (max ${PRETTIER_MAX_MB}MB, batches of ${PRETTIER_BATCH}, ${PRETTIER_JOBS} jobs)::${color_reset}"
+            echo -e "\n${color_green}Formatting JS with prettier (max ${PRETTIER_MAX_MB}MB, batches of ${PRETTIER_BATCH}, ${PRETTIER_JOBS} jobs)::${color_reset}"
             : > .prettier-list
             P_SKIP=0
             while IFS= read -r -d '' f; do
@@ -574,14 +577,14 @@ if [ "$START_PHASE" -le 5 ] && [ "$HAVE_GREP_P" -eq 1 ]; then
             echo -e "${color_red}RUNNING::${color_reset}${color_cyan} npx prettier --parser babel --write — $P_ELIGIBLE files in batches of $PRETTIER_BATCH${color_reset}"
             xargs -0 -n "$PRETTIER_BATCH" -P "$PRETTIER_JOBS" bash -c 'timeout 120 npx prettier --parser babel --write "$@" >/dev/null 2>&1' _ < .prettier-list || true
             rm -f .prettier-list
-            echo -e "${color_green}Formatted: $P_ELIGIBLE | Skipped >${PRETTIER_MAX_MB}MB: $P_SKIP${color_reset}"
+            echo -e "Formatted: $P_ELIGIBLE | Skipped >${PRETTIER_MAX_MB}MB: $P_SKIP"
         else
             echo -e "${color_yellow}npx not found — skipping prettier (files analyzed as-is)${color_reset}"
         fi
 
 
         if command -v npx &> /dev/null; then
-            echo -e "\n${color_cyan}Detecting obfuscated files::${color_reset}"
+            echo -e "\n${color_green}Detecting obfuscated files::${color_reset}"
             OBF_ALL=$(grep -rlP '(_0x[a-f0-9]{4,}.*_0x[a-f0-9]{4,}|eval\(function\(p,a,c,k|eval\(atob\()' js-files/ 2>/dev/null | grep -v '/deobf_' || true)
             OBF_TOTAL=$(printf '%s\n' "$OBF_ALL" | awk 'NF' | wc -l | tr -d '[:space:]')
             OBF_LIST=$(printf '%s\n' "$OBF_ALL" | awk 'NF' | head -n "$OBF_MAX_FILES")
@@ -608,6 +611,7 @@ if [ "$START_PHASE" -le 5 ] && [ "$HAVE_GREP_P" -eq 1 ]; then
                 echo -e "${color_green}Deobfuscated files: $DEOBF_COUNT${color_reset}"
             else
                 echo -e "No obfuscated files detected"
+                echo -e ""
             fi
         fi
 
@@ -621,6 +625,7 @@ if [ "$START_PHASE" -le 5 ] && [ "$HAVE_GREP_P" -eq 1 ]; then
               | sed 's|js-files/||' > js-findings/trufflehog.txt || true
             TH_COUNT=$(wc -l < js-findings/trufflehog.txt | tr -d '[:space:]')
             [ "$TH_COUNT" -gt 0 ] && echo -e "${color_green}Trufflehog findings: $TH_COUNT${color_reset}" || echo -e "${color_yellow}Trufflehog: 0 findings${color_reset}"
+            echo -e ""
         else
             if ! command -v trufflehog &> /dev/null; then
                 echo -e "${color_yellow}trufflehog not found — skipping verified secrets${color_reset}"
@@ -629,31 +634,51 @@ if [ "$START_PHASE" -le 5 ] && [ "$HAVE_GREP_P" -eq 1 ]; then
             fi
         fi
 
-
-
         hunt "Cloud & SaaS tokens" '\b(AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{24}|gh[pousr]_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z\-_]{35}|xox[baprs]-[0-9a-zA-Z-]{10,}|SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}|glpat-[0-9A-Za-z_-]{20,}|npm_[A-Za-z0-9]{36}|hooks\.slack\.com/services/T[A-Za-z0-9]+/B[A-Za-z0-9]+/[A-Za-z0-9]+|discord(app)?\.com/api/webhooks/[0-9]{15,}/[A-Za-z0-9_-]{50,}|[0-9]{8,10}:AA[A-Za-z0-9_-]{33}|key-[0-9a-f]{32}|AC[a-f0-9]{32})\b' "cloud-tokens.txt" '(EXAMPLE|YOUR_API_KEY|XXXX)' | roller
+
         hunt "JWT & Bearer tokens" '(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])|(?<![A-Za-z0-9])Bearer\s+[A-Za-z0-9\-\._~+/]{20,}' "auth-tokens.txt" | roller
+        
         hunt "RSA private keys" '-----BEGIN[ A-Z0-9_-]*PRIVATE KEY-----' "rsa-keys.txt" | roller
+        
         hunt "Database credentials in URIs" '((mongodb(\+srv)?|postgresql?|mysql|redis|amqps?|mssql)://[^\s\x22\x27@/]{1,64}:[^\s\x22\x27@]{1,128}@)' "db-creds.txt" | roller
+        
         hunt "Azure storage keys" 'AccountKey=[A-Za-z0-9+/]{60,}={0,2}' "azure-keys.txt" | roller
+        
         hunt "Google service accounts" '"type"\s*:\s*"service_account"' "service-accounts.txt" | roller
+        
         hunt "OAuth & app IDs" '(?i)(client_id|client_secret|app_id|app_secret|tenant_id)[\x22\x27\s]*[:=][\x22\x27\s]*[a-zA-Z0-9\-_]{10,}|\d+[a-z0-9_-]*\.apps\.googleusercontent\.com' "oauth-configs.txt" '[:=][\x22\x27\s]*(undefined|null|true|false|function)$' | roller
+        
         hunt "Presigned S3 URLs" '[?&]X-Amz-(Signature|Credential)=' "presigned-urls.txt" | roller
+        
         hunt "S3 buckets" '\b[a-z0-9][a-z0-9.-]*\.s3([.-][a-z0-9-]+)?\.amazonaws\.com\b|s3://[a-zA-Z0-9.-]+' "s3-buckets.txt" | roller
+        
         hunt "Firebase & Supabase & Appwrite" '[a-zA-Z0-9.-]+\.(firebaseio\.com|firebaseapp\.com|supabase\.co|appwrite\.io)' "baas-urls.txt" | roller
         hunt "Basic auth URLs" 'https?://[a-zA-Z0-9_-]+:[^\s\x22\x27@]{3,}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "basic-auth.txt" | roller
+        
         hunt "Source maps" 'sourceMappingURL\s*=\s*\K[^\s\x22\x27]+\.map' "source-maps.txt" | roller
+        
         hunt "Hidden internal paths" '(?<=[\x22\x27])(/(api|admin|v[0-9]|internal|graphql|dev|staging|auth|login|users|config|payment|upload|download)[a-zA-Z0-9_/?=&.-]*)(?=[\x22\x27])' "hidden-paths.txt" | roller
+        
         hunt "External URLs" 'https?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "js-external-urls.txt" '(w3\.org|react\.dev|nextjs\.org|schema\.org|localhost|github\.com|github\.io|npmjs\.com|mozilla\.org|example\.com|ckeditor\.com|formatjs\.io|strapi\.io|docs\.strapi\.io|analytics\.strapi\.io|strapi-ai\.apps\.strapi\.io|redux\.js\.org|redux-toolkit\.js\.org|react-dnd\.github\.io|docs\.sentry\.io|vercel\.com|va\.vercel-scripts\.com|clarity\.ms|bit\.ly|socket\.io|opensource\.org|stackoverflow\.com|lea\.verou\.me|reactjs\.org)' | roller
+        
         hunt "Internal hostnames" '\b[a-z0-9][a-z0-9-]*\.(internal|corp|local|intranet|staging|uat)\b' "internal-hosts.txt" | roller
+        
         hunt "Debug endpoints" '(/actuator/(env|heapdump|beans|configprops|mappings|threaddump)|/debug/pprof|/debug/vars|/_debug/vars)' "debug-endpoints.txt" | roller
+        
         hunt "Debug flags enabled" '(?i)\bdebug\b\s*[:=]\s*[\x22\x27]?(true|1)' "debug-flags.txt" | roller
+        
         hunt "DOM XSS sinks" '\b(innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval|Function|srcdoc)\b\s*\(|\bdocument\.cookie\b' "dom-sinks.txt" | roller
+        
         hunt "GraphQL operations" '(query|mutation)\s+[a-zA-Z0-9_]+\s*\{' "graphql.txt" | roller
+        
         hunt "Developer comments" '(?<=//|/\*)\s*(TODO|FIXME|HACK|BUG|XXX)[^\r\n]{0,120}' "dev-comments.txt" | roller
+        
         hunt "Emails" '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "emails.txt" '(sentry\.io|example\.com)' | roller
+        
         hunt "IP addresses" '\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\b' "ip-addresses.txt" | roller
+        
         hunt "WebSockets" 'wss?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "websockets.txt" | roller
+        
         hunt "Generic secrets" '(?i)(api_key|apikey|secret|token|password|auth_token)[\x22\x27\s]*[:=][\x22\x27\s]*[a-zA-Z0-9\-_=]{8,}' "generic-secrets.txt" '[:=][\x22\x27\s]*(undefined|null|true|false|function|your[a-z0-9_-]*|changeme|placeholder|dummy|redacted|x{8,}|\*{8,}|123456789)$' | roller
 
 
@@ -1146,60 +1171,17 @@ cat << 'EOF' >> "$HTML_FILE"
 </html>
 EOF
 
-if command -v brave-browser &> /dev/null; then brave-browser --incognito "$HTML_FILE" &> /dev/null &
-elif command -v brave &> /dev/null; then brave --incognito "$HTML_FILE" &> /dev/null &
-elif command -v xdg-open &> /dev/null; then xdg-open "$HTML_FILE" &> /dev/null &
-elif command -v open &> /dev/null; then open "$HTML_FILE" &> /dev/null &
-else echo "No Browser found";
-fi
-
 
 #-----------------------------------------------------------------------------------
-#	AI EXPORT - Markdowns for LLM analysis
+#	AI EXPORT - Mirror every .txt as .md (split if oversized)
 #-----------------------------------------------------------------------------------
 
 ai_export() {
 	local out_dir="$SESSION_DIR/ai-export"
-	local cap=150
-	local max_bytes=60000
+	local max_bytes=120000    # ~30k tokens per part
+	local split_lines=8000    # fallback split when one section is huge
 
 	mkdir -p "$out_dir"
-
-	_sec() {
-		local title="$1" file="$2" cap="${3:-$cap}" note="${4:-}"
-		echo "### $title"
-		[ -n "$note" ] && echo "> $note"
-		echo ""
-		if [ ! -s "$file" ]; then
-			echo "_No data._"
-			echo ""
-			return
-		fi
-		local total
-		total=$(wc -l < "$file" | tr -d '[:space:]')
-		echo '```'
-		head -n "$cap" "$file"
-		echo '```'
-		if [ "$total" -gt "$cap" ]; then
-			echo ""
-			echo "_... truncated (showing $cap of $total lines)_"
-		fi
-		echo ""
-	}
-
-
-	_split_if_large() {
-		local f="$1" bytes base
-		bytes=$(wc -c < "$f" | tr -d '[:space:]')
-		[ "$bytes" -le "$max_bytes" ] && return 0
-		base="${f%.md}"
-		csplit -z -s -f "${base}_part-" -b "%02d.md" "$f" '/^## /' '{*}' 2>/dev/null
-		rm -f "$f"
-		echo -e "${color_yellow}  split: $(basename "$base") → $(ls "${base}_part-"*.md 2>/dev/null | wc -l) parts${color_reset}"
-	}
-
-	echo -e "\n${color_yellow}#----- AI Export -----${color_reset}"
-
 
 	cat > "$out_dir/00-PROMPT.md" <<'PROMPT_EOF'
 # Prompt — Bug Bounty Recon Analysis
@@ -1210,10 +1192,11 @@ All findings below come from in-scope assets collected during a sanctioned recon
 Data sources: subfinder, assetfinder, findomain, alterx, dnsx, httpx, katana, gau,
 waybackurls, trufflehog, and custom regex hunting on JS files.
 
-**Severity tiers:**
-- **Tier A** = high-confidence secrets / credentials (verify before acting)
-- **Tier B** = strong signal (S3, BaaS, source maps, basic-auth URLs)
-- **Tier C** = recon intel (paths, endpoints, comments, IPs)
+**Severity tiers (by filename):**
+- **Tier A** = secrets/creds: trufflehog, cloud-tokens, auth-tokens, rsa-keys, db-creds, azure-keys, service-accounts, oauth-configs, presigned-urls
+- **Tier B** = strong signal: s3-buckets, baas-urls, basic-auth, source-maps
+- **Tier C** = recon intel: hidden-paths-mapped, api-endpoints, internal-hosts, debug-endpoints, graphql, dom-sinks, dev-comments, emails, websockets, ip-addresses, generic-secrets, js-external-urls
+- **Infra** = subdomains, live-urls, params, sensitive-files, etc.
 
 I will paste report files one at a time. When I'm done, produce:
 
@@ -1222,110 +1205,85 @@ I will paste report files one at a time. When I'm done, produce:
 
 2. **Test Plans for Top 5** — for each:
    - Vulnerability class (IDOR / auth bypass / SSRF / info disclosure / etc.)
-   - Exact `curl` command(s) (or Burp workflow)
+   - Exact `curl` command(s) or Burp workflow
    - Expected: vulnerable vs safe response
 
 3. **Likely False Positives** — which findings look like noise/placeholders? Why?
 
-4. **Missing Angles** — what attack surfaces look undertested? What recon would you add?
+4. **Missing Angles** — undertested attack surfaces, additional recon to run
 
-5. **Quick Wins** — findings verifiable in <5 min with highest payout chance.
+5. **Quick Wins** — findings verifiable in <5 min with highest payout chance
 
 Be concise. Skip generic methodology. Prioritize real-world impact.
 PROMPT_EOF
 
 
-	{
-		echo "# Report 01 — Overview & Tier A Findings"
-		echo ""
-		echo "## Target"
-		echo ""
-		echo "| Field | Value |"
-		echo "|---|---|"
-		echo "| Domain | \`$DOMAIN\` |"
-		echo "| Scan time | $TIMESTAMP |"
-		echo ""
-		echo "## Coverage"
-		echo ""
-		echo "| Metric | Count |"
-		echo "|---|---|"
-		echo "| Subdomains | $(wc -l < all-subs-final.txt 2>/dev/null | tr -d '[:space:]') |"
-		echo "| Live hosts | $(wc -l < live-urls.txt 2>/dev/null | tr -d '[:space:]') |"
-		echo "| Archived URLs | $(wc -l < archive-urls.txt 2>/dev/null | tr -d '[:space:]') |"
-		echo "| JS files analyzed | $(find js-files -name '*.js' 2>/dev/null | wc -l | tr -d '[:space:]') |"
-		echo "| Sensitive files | $(wc -l < sensitive-files.txt 2>/dev/null | tr -d '[:space:]') |"
-		echo "| **Tier A total** | **$TIER_A_TOTAL** |"
-		echo ""
-		echo "## Tier A — High-Confidence Findings"
-		echo ""
-		echo "> These are secrets/credentials. Verify scope before use."
-		echo ""
-		_sec "Trufflehog"            js-findings/trufflehog.txt        80
-		_sec "Cloud Tokens"          js-findings/cloud-tokens.txt      60
-		_sec "Auth Tokens / JWT"     js-findings/auth-tokens.txt       60
-		_sec "Private Keys"          js-findings/rsa-keys.txt          20
-		_sec "Database Credentials"  js-findings/db-creds.txt          40
-		_sec "Azure Keys"            js-findings/azure-keys.txt        20
-		_sec "Service Accounts"      js-findings/service-accounts.txt  20
-		_sec "OAuth / App IDs"       js-findings/oauth-configs.txt     40
-		_sec "Presigned URLs"        js-findings/presigned-urls.txt    40
-	} > "$out_dir/01-tier-a.md"
-	_split_if_large "$out_dir/01-tier-a.md"
+	_md_convert() {
+		local src="$1" name base md part bytes n
+		name=$(basename "$src")
+		base="${name%.txt}"
+		md="$out_dir/$base.md"
+
+		{
+			echo "# $name"
+			echo ""
+			echo "> Source: \`$name\` | Lines: $(wc -l < "$src" | tr -d '[:space:]') | Size: $(( $(wc -c < "$src") / 1024 ))KB"
+			echo ""
+			echo '```'
+			cat "$src"
+			echo '```'
+		} > "$md"
+
+		bytes=$(wc -c < "$md" | tr -d '[:space:]')
+		if [ "$bytes" -gt "$max_bytes" ]; then
+			split -l "$split_lines" -d --additional-suffix=".md" "$md" "$out_dir/${base}_part-"
+			rm -f "$md"
+			n=$(ls "$out_dir/${base}_part-"*.md 2>/dev/null | wc -l | tr -d '[:space:]')
+			echo -e "  ${color_yellow}split:${color_reset} %-40s → %s parts" "$name" "$n"
+		else
+			echo -e "  ${color_green}ok:${color_reset}    %-40s %4sKB  %5s lines" \
+				"$name" \
+				"$(( bytes / 1024 ))" \
+				"$(wc -l < "$md" | tr -d '[:space:]')"
+		fi
+	}
+
+	echo -e "\n${color_yellow}──────────────── AI Export ────────────────${color_reset}"
+	echo -e "${color_cyan}00-PROMPT.md${color_reset} written"
 
 
-	{
-		echo "# Report 02 — Strong Signal & Recon Intel"
-		echo ""
-		echo "## Tier B — Strong Signal"
-		echo ""
-		_sec "S3 Buckets"            js-findings/s3-buckets.txt        40
-		_sec "BaaS URLs"             js-findings/baas-urls.txt         40
-		_sec "Basic Auth URLs"       js-findings/basic-auth.txt        30
-		_sec "Source Maps"           js-findings/source-maps.txt       30
-		echo ""
-		echo "## Tier C — Recon Intelligence"
-		echo ""
-		_sec "Hidden API Paths"      js-findings/hidden-paths-mapped.txt 120 "Format: path<TAB>hosts"
-		_sec "API Endpoints"         api-endpoints.txt                 80
-		_sec "Internal Hosts"        js-findings/internal-hosts.txt    40
-		_sec "Debug Endpoints"       js-findings/debug-endpoints.txt   30
-		_sec "GraphQL Ops"           js-findings/graphql.txt           40
-		_sec "DOM Sinks"             js-findings/dom-sinks.txt         40
-		_sec "Dev Comments"          js-findings/dev-comments.txt      40
-		_sec "Emails"                js-findings/emails.txt            30
-		_sec "WebSockets"            js-findings/websockets.txt        30
-		_sec "IP Addresses"          js-findings/ip-addresses.txt      30
-		_sec "Generic Secrets"       js-findings/generic-secrets.txt   50
-	} > "$out_dir/02-tier-bc.md"
-	_split_if_large "$out_dir/02-tier-bc.md"
+	for src in "$SESSION_DIR"/*.txt; do
+		[ -f "$src" ] || continue
+		[ "$(basename "$src")" = "url-map.txt" ] && continue
+		_md_convert "$src"
+	done
 
 
-	{
-		echo "# Report 03 — Infrastructure"
-		echo ""
-		_sec "Subdomains"            all-subs-final.txt                120
-		_sec "Live URLs"             live-urls.txt                     120
-		_sec "Permutations (new)"    perms-new.txt                     60
-		_sec "URLs with Params"      urls-with-params.txt              80
-		_sec "Sensitive Files"       sensitive-files.txt               60
-		_sec "JS URLs"               js-urls.txt                       80
-		_sec "External URLs"         external-urls.txt                 60
-	} > "$out_dir/03-infrastructure.md"
-	_split_if_large "$out_dir/03-infrastructure.md"
-
+	if [ -d "$SESSION_DIR/js-findings" ]; then
+		for src in "$SESSION_DIR/js-findings"/*.txt; do
+			[ -f "$src" ] || continue
+			_md_convert "$src"
+		done
+	fi
 
 	echo ""
 	echo -e "${color_green}AI export ready → $out_dir/${color_reset}"
-	for f in "$out_dir"/*.md; do
-		[ -f "$f" ] || continue
-		printf "  %-30s %6s KB\n" "$(basename "$f")" "$(( $(wc -c < "$f") / 1024 ))"
-	done
+	echo -e "${color_cyan}Total bundles:${color_reset} $(ls "$out_dir"/*.md 2>/dev/null | wc -l | tr -d '[:space:]')"
 	echo ""
 	echo -e "${color_cyan}How to use:${color_reset}"
 	echo -e "  1. Open chat with any LLM (DeepSeek, Qwen, GLM, Claude, GPT)"
 	echo -e "  2. Paste ${color_yellow}00-PROMPT.md${color_reset} first"
-	echo -e "  3. Then paste each report file one by one (01 → 02 → 03)"
-	echo -e "  4. Analyze now"
+	echo -e "  3. Then paste any report file(s) — order doesn't matter"
+	echo -e "  4. Say: Analyze now"
 }
 
 ai_export
+
+
+if command -v brave-browser &> /dev/null; then brave-browser --incognito "$HTML_FILE" &> /dev/null &
+elif command -v brave &> /dev/null; then brave --incognito "$HTML_FILE" &> /dev/null &
+elif command -v xdg-open &> /dev/null; then xdg-open "$HTML_FILE" &> /dev/null &
+elif command -v open &> /dev/null; then open "$HTML_FILE" &> /dev/null &
+else echo "No Browser found";
+fi
+
