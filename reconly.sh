@@ -2117,7 +2117,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ trivy${C_R} fs --scan
         rm -f "$SESSION_DIR/state/tmp/trivy.json"
         local _tc
         _tc=$(wc -l < "$SESSION_DIR/findings/analysis/trivy.txt" 2>/dev/null | tr -d ' '); _tc=${_tc:-0}
-        out "${C_W}trivy findings: $_tc (secret+config+vuln)${C_R}"
+        out "${C_W}trivy findings: $_tc (secret+config)${C_R}"
         [ "$_tc" -gt 0 ] && cat "$SESSION_DIR/findings/analysis/trivy.txt" 
     else
         out "${C_Y}[warn] trivy not installed -- skipping${C_R}"
@@ -2165,7 +2165,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
             [ -n "$chunk" ] && raw="$raw"$'\n'"$chunk"
         done
         if [ -n "$exclude" ] && [ -n "$raw" ]; then
-            raw=$(printf '%s\n' "$raw" | awk -v pat="$exclude" 'BEGIN{pat=tolower(pat)}{val=$0; sub(/^[^:]*:[0-9]*:/, "", val); if(tolower(val) !~ pat) print}')
+            raw=$(printf '%s\n' "$raw" | HUNT_EXCLUDE="$exclude" awk 'BEGIN{pat=tolower(ENVIRON["HUNT_EXCLUDE"])}{val=$0; sub(/^[^:]*:[0-9]*:/, "", val); if(tolower(val) !~ pat) print}')
         fi
         if [ "$minent" != "0" ] && [ -n "$raw" ]; then
             raw=$(printf '%s\n' "$raw" | awk -F: -v me="$minent" '{m="";for(i=3;i<=NF;i++)m=m $i (i<NF?":":"");s=m;n=length(s);if(n<16)next;delete c;for(i=1;i<=n;i++)c[substr(s,i,1)]++;e=0;for(k in c){p=c[k]/n;e-=p*log(p)};e=e/log(2);if(e+0>=me+0)print}')
@@ -3024,7 +3024,7 @@ st_triage() {
     cat "$SESSION_DIR/findings/next-steps.txt" 
 
     {
-        echo "reconly v2 — final summary"
+        echo "reconly — final summary"
         echo "============================"
         echo "domain:   $DOMAIN"
         echo "session:  $SESSION_DIR"
@@ -3274,141 +3274,145 @@ st_report() {
         local _disp="none"
         [ -n "$active" ] && _disp="block"
         tabs_def+="        <button class=\"tablinks${active}\" onclick=\"openTab(event,'${id}')\" style=\"color:${color}\">${label}<span class=\"badge\">${count}</span></button>"$'\n'
-        data=$(head -n 5000 "$file" 2>/dev/null | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+        data=$(head -n 5000 "$file" 2>/dev/null | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
+          | sed -E 's|^([A-Za-z0-9_.-]+:[0-9]+):|<span class=\"f-loc\">\1:</span>|' \
+          | sed -E 's|(https?://[^"<> ]+)|<a href=\"\1\" target=\"_blank\">\1</a>|g' \
+          | awk '{
+              line=$0; sev=""
+              if (match(line,/^ *\[(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]/)) { sev=substr(line,RSTART,RLENGTH); gsub(/[][ ]/,"",sev) }
+              else if (match(line,/^\|?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\|/)) { sev=substr(line,RSTART,RLENGTH); gsub(/\|/,"",sev) }
+              cls=(sev==""?"":" sev-" sev)
+              printf "      <div class=\"f-row%s\"><span class=\"f-body\">%s</span></div>\n", cls, line
+            }')
         local _total_lines _shown_lines
         _total_lines=$(wc -l < "$file" 2>/dev/null | tr -d ' '); _total_lines=${_total_lines:-0}
         _shown_lines=$_total_lines
         [ "$_total_lines" -gt 5000 ] && _shown_lines=5000
         content_html+="    <div id=\"${id}\" class=\"tabcontent\" style=\"display:${_disp};\">
       <div class=\"tab-header\"><span style=\"color:${color};font-weight:bold\">${label}</span><span style=\"color:var(--fg2);font-size:11px;margin-left:8px\">showing ${_shown_lines} of ${_total_lines} lines</span><button class=\"copy-btn\" onclick=\"copyData(this)\">Copy</button></div>
-      <textarea class=\"data-box\" readonly spellcheck=\"false\">${data}</textarea>
+      <div class=\"f-list\">
+${data}
+      </div>
     </div>"$'\n'
     }
-
     _add_tab "$SESSION_DIR/findings/summary.txt" "summary" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/explanations.txt" "explanations" "#3fb950"
-    _add_tab "$SESSION_DIR/findings/next-steps.txt" "next-steps" "#3fb950"
     _add_tab "$SESSION_DIR/findings/probes/confirmed.txt" "confirmed" "#f85149"
+    _add_tab "$SESSION_DIR/findings/next-steps.txt" "next-steps" "#3fb950"
     _add_tab "$SESSION_DIR/findings/triage.txt" "triage" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/explanations.txt" "explanations" "#3fb950"
     _add_tab "$SESSION_DIR/findings/all-findings.txt" "all-findings" "#f85149"
     _add_tab "$SESSION_DIR/findings/by-type.txt" "by-type" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/analysis/context-all.txt" "context" "#f85149"
     _add_tab "$SESSION_DIR/findings/probes/hidden-endpoints.txt" "hidden-endpoints" "#db6d28"
     _add_tab "$SESSION_DIR/findings/probes/auth-bypass.txt" "auth-bypass" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/probes/auth-surface-map.txt" "auth-surface" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/probes/sensitive-files-live.txt" "sensitive-files" "#db6d28"
     _add_tab "$SESSION_DIR/findings/probes/open-redirect-confirmed.txt" "open-redirect" "#d29922"
     _add_tab "$SESSION_DIR/findings/probes/reflected-params.txt" "reflected" "#d29922"
     _add_tab "$SESSION_DIR/findings/probes/postmessage-verdicts.txt" "postmessage" "#d29922"
     _add_tab "$SESSION_DIR/findings/probes/idor-candidates.txt" "idor" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/probes/auth-surface-map.txt" "auth-surface" "#db6d28"
     _add_tab "$SESSION_DIR/findings/probes/cors-misconfig.txt" "cors" "#d29922"
+    _add_tab "$SESSION_DIR/findings/probes/takeover.txt" "takeover" "#f85149"
     _add_tab "$SESSION_DIR/findings/probes/security-headers.txt" "headers" "#d29922"
     _add_tab "$SESSION_DIR/findings/probes/csp-deep.txt" "csp-deep" "#d29922"
     _add_tab "$SESSION_DIR/findings/probes/cookie-flags.txt" "cookies" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/ws-probes.txt" "websockets" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/takeover.txt" "takeover" "#f85149"
-    _add_tab "$SESSION_DIR/findings/probes/graphql-mutations.txt" "graphql-muts" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/graphql-persisted-queries.txt" "graphql-apq" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/sensitive-files-live.txt" "sensitive-files" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/probes/surface-matrix.txt" "surface-matrix" "#58a6ff"
     _add_tab "$SESSION_DIR/findings/probes/method-anomalies.txt" "method-anomalies" "#d29922"
+    _add_tab "$SESSION_DIR/findings/probes/hosts-auth-required.txt" "hosts-gated" "#d29922"
     _add_tab "$SESSION_DIR/findings/probes/post-probe.txt" "post-probe" "#d29922"
+    _add_tab "$SESSION_DIR/findings/probes/surface-matrix.txt" "surface-matrix" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/probes/open-redirect-params.txt" "open-redirect-params" "#d29922"
+    _add_tab "$SESSION_DIR/findings/analysis/semgrep-findings.txt" "semgrep" "#f85149"
+    _add_tab "$SESSION_DIR/findings/analysis/codeql-findings.txt" "codeql" "#f85149"
+    _add_tab "$SESSION_DIR/findings/analysis/codeql-locations.txt" "codeql-locations" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/jsluice-secrets.txt" "jsluice-secrets" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/trufflehog.txt" "trufflehog" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/gitleaks.txt" "gitleaks" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/detect-secrets.txt" "detect-secrets" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/secrets/noseyparker.txt" "noseyparker" "#f85149"
+    _add_tab "$SESSION_DIR/findings/analysis/trivy.txt" "trivy" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/analysis/grype.txt" "grype" "#d29922"
+    _add_tab "$SESSION_DIR/findings/analysis/vulnerable-libs.txt" "vuln-libs" "#d29922"
+    _add_tab "$SESSION_DIR/findings/analysis/npm-audit.txt" "npm-audit" "#d29922"
+    _add_tab "$SESSION_DIR/findings/secrets/wayback-secrets.txt" "wayback-secrets" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/cloud-tokens.txt" "cloud-tokens" "#f85149"
     _add_tab "$SESSION_DIR/findings/secrets/private-keys.txt" "private-keys" "#f85149"
     _add_tab "$SESSION_DIR/findings/secrets/db-creds.txt" "db-creds" "#f85149"
     _add_tab "$SESSION_DIR/findings/secrets/signing-secrets.txt" "signing-secrets" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/config-file-secrets.txt" "config-secrets" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/comms-keys.txt" "comms-keys" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/auth-provider.txt" "auth-provider" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/payments-crypto.txt" "payments-crypto" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/cloud-keys-2.txt" "cloud-keys-2" "#f85149"
     _add_tab "$SESSION_DIR/findings/secrets/auth-tokens.txt" "auth-tokens" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/oauth-secrets.txt" "oauth-secrets" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/ai-keys.txt" "ai-keys" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/devops-tokens.txt" "devops-tokens" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/secrets/ai-keys-2.txt" "ai-keys-2" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/payment-webhooks.txt" "payment" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/saas-tokens.txt" "saas-tokens" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/secrets/devops-tokens.txt" "devops-tokens" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/secrets/registry-ci.txt" "registry-ci" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/secrets/observability.txt" "observability" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/hardcoded-bearer.txt" "bearer" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/presigned-urls.txt" "presigned" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/smtp-creds.txt" "smtp" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/generic-secrets.txt" "generic-secrets" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/cloud-keys-2.txt" "cloud-keys-2" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/comms-keys.txt" "comms-keys" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/auth-provider.txt" "auth-provider" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/payments-crypto.txt" "payments-crypto" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/ai-keys-2.txt" "ai-keys-2" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/registry-ci.txt" "registry-ci" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/observability.txt" "observability" "#db6d28"
+    _add_tab "$SESSION_DIR/findings/secrets/saas-tokens.txt" "saas-tokens" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/saas-keys.txt" "saas-keys" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/config-file-secrets.txt" "config-secrets" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/noseyparker.txt" "noseyparker" "#f85149"
     _add_tab "$SESSION_DIR/findings/secrets/azure-keys.txt" "azure" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/service-accounts.txt" "svc-accounts" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/trufflehog.txt" "trufflehog" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/gitleaks.txt" "gitleaks" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/detect-secrets.txt" "detect-secrets" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/analysis/trivy.txt" "trivy" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/analysis/grype.txt" "grype" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/jsluice-secrets.txt" "jsluice-secrets" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/wayback-secrets.txt" "wayback-secrets" "#d29922"
-    _add_tab "$SESSION_DIR/findings/analysis/semgrep-findings.txt" "semgrep" "#f85149"
-    _add_tab "$SESSION_DIR/findings/analysis/codeql-findings.txt" "codeql" "#f85149"
-    _add_tab "$SESSION_DIR/findings/analysis/vulnerable-libs.txt" "vuln-libs" "#d29922"
-    _add_tab "$SESSION_DIR/findings/analysis/npm-audit.txt" "npm-audit" "#d29922"
-    _add_tab "$SESSION_DIR/findings/surface/app-routes.txt" "app-routes" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/app-api-calls.txt" "app-api-calls" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/app-storage-keys.txt" "storage-keys" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/app-environments.txt" "environments" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/app-repo-structure.txt" "repo-structure" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" "jsluice-endpoints" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/service-worker-urls.txt" "sw-urls" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/secrets/hidden-paths.txt" "hidden-paths" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/debug-endpoints.txt" "debug-endpoints" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/graphql.txt" "graphql" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/websockets.txt" "websockets-src" "#8b949e"
     _add_tab "$SESSION_DIR/findings/secrets/dom-sinks.txt" "dom-sinks" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/framework-sinks.txt" "framework-sinks" "#db6d28"
     _add_tab "$SESSION_DIR/findings/secrets/postmessage-listeners.txt" "pm-listeners" "#d29922"
+    _add_tab "$SESSION_DIR/findings/secrets/hidden-paths.txt" "hidden-paths" "#d29922"
+    _add_tab "$SESSION_DIR/findings/secrets/debug-endpoints.txt" "debug-endpoints" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/internal-hosts.txt" "internal-hosts" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/s3-buckets.txt" "s3" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/baas-urls.txt" "baas" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/cognito-pools.txt" "cognito" "#d29922"
+    _add_tab "$SESSION_DIR/findings/secrets/sdk-configs.txt" "sdk-configs" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/source-maps.txt" "source-maps" "#d29922"
     _add_tab "$SESSION_DIR/findings/secrets/oauth-ids.txt" "oauth-ids" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/sdk-configs.txt" "sdk-configs" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/emails.txt" "emails" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/ip-addresses.txt" "ips" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/dev-comments.txt" "dev-comments" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/debug-flags.txt" "debug-flags" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/js-external-urls.txt" "external-urls" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/secrets/graphql.txt" "graphql" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/probes/graphql-mutations.txt" "graphql-muts" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/probes/graphql-persisted-queries.txt" "graphql-apq" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/probes/ws-probes.txt" "websockets" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/secrets/websockets.txt" "websockets-src" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/surface/app-routes.txt" "app-routes" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/surface/app-api-calls.txt" "app-api-calls" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/surface/app-storage-keys.txt" "storage-keys" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/surface/app-environments.txt" "environments" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" "jsluice-endpoints" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/surface/service-worker-urls.txt" "sw-urls" "#58a6ff"
+    _add_tab "$SESSION_DIR/findings/surface/app-repo-structure.txt" "repo-structure" "#58a6ff"
     _add_tab "$SESSION_DIR/urls/urls-inscope.txt" "urls-inscope" "#58a6ff"
+    _add_tab "$SESSION_DIR/urls/urls-api.txt" "urls-api" "#58a6ff"
+    _add_tab "$SESSION_DIR/urls/urls-auth-only.txt" "urls-auth-only" "#db6d28"
+    _add_tab "$SESSION_DIR/urls/urls-revived.txt" "urls-revived" "#db6d28"
+    _add_tab "$SESSION_DIR/urls/urls-js.txt" "urls-js" "#58a6ff"
+    _add_tab "$SESSION_DIR/urls/urls-js-candidates.txt" "js-candidates" "#58a6ff"
+    _add_tab "$SESSION_DIR/urls/urls-json.txt" "urls-json" "#58a6ff"
+    _add_tab "$SESSION_DIR/urls/urls-artifacts.txt" "urls-artifacts" "#58a6ff"
     _add_tab "$SESSION_DIR/urls/urls-all.txt" "urls-all" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/archive-waymore.txt" "archive-waymore" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/archive-gau.txt" "archive-gau" "#58a6ff"
     _add_tab "$SESSION_DIR/urls/crawl-katana.txt" "crawl-katana" "#58a6ff"
     _add_tab "$SESSION_DIR/urls/crawl-auth.txt" "crawl-auth" "#58a6ff"
     _add_tab "$SESSION_DIR/urls/crawl-archive.txt" "crawl-archive" "#58a6ff"
     _add_tab "$SESSION_DIR/urls/crawl-gospider.txt" "crawl-gospider" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-json.txt" "urls-json" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-artifacts.txt" "urls-artifacts" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-js-candidates.txt" "js-candidates" "#58a6ff"
+    _add_tab "$SESSION_DIR/urls/archive-waymore.txt" "archive-waymore" "#58a6ff"
+    _add_tab "$SESSION_DIR/urls/archive-gau.txt" "archive-gau" "#58a6ff"
+    _add_tab "$SESSION_DIR/state/blind-maps-found.txt" "blind-maps" "#58a6ff"
+    _add_tab "$SESSION_DIR/hosts/hosts-live.txt" "hosts-live" "#58a6ff"
+    _add_tab "$SESSION_DIR/subdomains/subdomains-final.txt" "subdomains" "#58a6ff"
+    _add_tab "$SESSION_DIR/subdomains/subdomains-new-since-last.txt" "subs-new" "#d29922"
+    _add_tab "$SESSION_DIR/subdomains/csp-domains.txt" "csp-domains" "#d29922"
     _add_tab "$SESSION_DIR/hosts/httpx-raw.txt" "httpx-raw" "#58a6ff"
     _add_tab "$SESSION_DIR/subdomains/raw/subfinder.txt" "subfinder-raw" "#58a6ff"
     _add_tab "$SESSION_DIR/subdomains/raw/assetfinder.txt" "assetfinder-raw" "#58a6ff"
     _add_tab "$SESSION_DIR/subdomains/raw/findomain.txt" "findomain-raw" "#58a6ff"
-    _add_tab "$SESSION_DIR/state/blind-maps-found.txt" "blind-maps" "#58a6ff"
     _add_tab "$SESSION_DIR/state/stage-log.tsv" "stage-log" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/open-redirect-params.txt" "open-redirect-params" "#d29922"
-    _add_tab "$SESSION_DIR/urls/urls-api.txt" "urls-api" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-js.txt" "urls-js" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-auth-only.txt" "urls-auth-only" "#db6d28"
-    _add_tab "$SESSION_DIR/urls/urls-revived.txt" "urls-revived" "#db6d28"
-    _add_tab "$SESSION_DIR/hosts/hosts-live.txt" "hosts-live" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/probes/hosts-auth-required.txt" "hosts-gated" "#d29922"
-    _add_tab "$SESSION_DIR/subdomains/subdomains-final.txt" "subdomains" "#58a6ff"
-    _add_tab "$SESSION_DIR/subdomains/subdomains-new-since-last.txt" "subs-new" "#d29922"
-    _add_tab "$SESSION_DIR/subdomains/csp-domains.txt" "csp-domains" "#d29922"
-    if [ -d "$SESSION_DIR/findings/analysis/ctx" ]; then
-        : > "$SESSION_DIR/findings/analysis/context-all.txt"
-        for _cf in "$SESSION_DIR/findings/analysis/ctx"/*.txt; do
-            [ -s "$_cf" ] || continue
-            { echo "===== $(basename "$_cf") ====="; cat "$_cf"; echo ""; } >> "$SESSION_DIR/findings/analysis/context-all.txt"
-        done
-    fi
-    _add_tab "$SESSION_DIR/findings/analysis/context-all.txt" "context" "#f85149"
+    _add_tab "$SESSION_DIR/findings/secrets/debug-flags.txt" "debug-flags" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/secrets/dev-comments.txt" "dev-comments" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/secrets/emails.txt" "emails" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/secrets/ip-addresses.txt" "ips" "#8b949e"
+    _add_tab "$SESSION_DIR/findings/secrets/js-external-urls.txt" "external-urls" "#8b949e"
     _add_tab "$SESSION_DIR/findings/export.json" "export-json" "#58a6ff"
     local log_data=""
     [ -f "$SESSION_DIR/reconly.log" ] && log_data=$(tail -n 5000 "$SESSION_DIR/reconly.log" 2>/dev/null | sed -r 's/\x1b\[[0-9;]*m//g' | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
@@ -3419,17 +3423,33 @@ st_report() {
       <textarea class=\"data-box\" readonly spellcheck=\"false\">${log_data}</textarea>
     </div>"$'\n'
 
+    local _tl_rows _q_rows _pre_tabs _pre_content
+    _tl_rows=$(printf '%s\n' "$timeline_html" | grep -c 'tl-row' || true)
+    _q_rows=$(printf '%s\n' "$queue_html" | grep -c 'q-row' || true)
+    _pre_tabs="        <button class=\"tablinks\" onclick=\"openTab(event,'stage-timeline')\" style=\"color:#8b949e\">stage-timeline<span class=\"badge\">${_tl_rows}</span></button>"$'\n'
+    _pre_tabs+="        <button class=\"tablinks\" onclick=\"openTab(event,'attack-queue')\" style=\"color:#f85149\">attack-queue<span class=\"badge\">${_q_rows}</span></button>"$'\n'
+    _pre_content="    <div id=\"stage-timeline\" class=\"tabcontent\" style=\"display:none;\">"$'\n'
+    _pre_content+="      <div class=\"timeline\">"$'\n'
+    _pre_content+="$timeline_html"
+    _pre_content+="      </div>"$'\n'"    </div>"$'\n'
+    _pre_content+="    <div id=\"attack-queue\" class=\"tabcontent\" style=\"display:none;\">"$'\n'
+    _pre_content+="      <div class=\"queue\">"$'\n'
+    _pre_content+="$queue_html"
+    _pre_content+="      </div>"$'\n'"    </div>"$'\n'
+    tabs_def="$_pre_tabs$tabs_def"
+    content_html="$_pre_content$content_html"
+
     cat > "$html" << HTMLEOF
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>reconly v2 — $esc_domain</title>
+<title>reconly — $esc_domain</title>
 <style>
 :root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--fg:#c9d1d9;--fg2:#8b949e;--border:#30363d;--green:#3fb950;--red:#f85149;--orange:#db6d28;--yellow:#d29922;--blue:#58a6ff;--purple:#bc8cff}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg);color:var(--fg);min-height:100vh}
-.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:16px 24px;display:flex;justify-content:space-between;align-items:center}
+.header{background:var(--bg2);border:none;padding:0;display:flex;justify-content:space-between;align-items:center}
 .header h1{font-size:20px;font-weight:700}
 .header .meta{color:var(--fg2);font-size:13px;margin-top:4px}
 .header .theme-btn{background:var(--bg3);border:1px solid var(--border);color:var(--fg);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
@@ -3450,7 +3470,19 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg
 .tab-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .copy-btn{background:var(--green);color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700}
 .copy-btn:hover{opacity:.9}
-.data-box{width:100%;height:calc(100vh - 320px);min-height:300px;background:#010409;color:var(--green);border:1px solid var(--border);padding:15px;font-family:'Courier New',Courier,monospace;font-size:13px;resize:vertical;outline:none;border-radius:6px}
+.data-box{width:100%;height:calc(100vh - 230px);min-height:480px;background:#010409;color:var(--green);border:1px solid var(--border);padding:15px;font-family:'Courier New',Courier,monospace;font-size:13px;resize:vertical;outline:none;border-radius:6px}
+.f-list{max-height:calc(100vh - 230px);min-height:480px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:#010409;padding:6px 0}
+.f-row{display:flex;gap:10px;padding:5px 14px;border-left:3px solid transparent;font-size:13px;line-height:1.55;align-items:baseline}
+.f-row:nth-child(odd){background:rgba(255,255,255,.018)}
+.f-row:hover{background:var(--bg3)}
+.sev-CRITICAL{border-left-color:var(--red);background:rgba(248,81,73,.06)}
+.sev-HIGH{border-left-color:var(--orange);background:rgba(219,109,40,.06)}
+.sev-MEDIUM{border-left-color:var(--yellow);background:rgba(210,153,34,.05)}
+.sev-LOW,.sev-INFO{border-left-color:var(--fg2)}
+.f-body{flex:1;word-break:break-word;color:var(--fg)}
+.f-loc{color:var(--fg2);font-family:'Courier New',monospace;font-size:12px;margin-right:6px}
+.f-list a{color:var(--blue);text-decoration:none}
+.f-list a:hover{text-decoration:underline}
 .timeline{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px}
 .timeline h3{font-size:13px;color:var(--fg2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
 .tl-row{display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:center}
@@ -3478,24 +3510,13 @@ body.light .card .num{color:var(--fg)}
 <body>
 <div class="header">
   <div>
-    <h1>reconly v2 — $esc_domain</h1>
+    <h1>reconly — $esc_domain</h1>
     <div class="meta">$TIMESTAMP | $esc_session</div>
   </div>
   <button class="theme-btn" onclick="toggleTheme()">Toggle theme</button>
 </div>
 <noscript><style>.sidebar{display:none}.tabcontent{display:block !important;margin-bottom:24px}.main{display:block}.search-box{display:none}</style><div style="background:#d29922;color:#000;padding:10px 24px;font-weight:700">JavaScript is disabled in your browser (check Brave Shields / script blockers) -- showing all tabs stacked below. Use Ctrl+F to search, or enable JS for the full tabbed UI.</div></noscript>
-<div class="strip">
-  <div class="card crit"><div class="num">$f_crit</div><div class="lbl">CRITICAL (pattern)</div></div>
-  <div class="card high"><div class="num">$f_high</div><div class="lbl">HIGH (pattern)</div></div>
-  <div class="card med"><div class="num">$f_med</div><div class="lbl">MEDIUM (pattern)</div></div>
-  <div class="card crit"><div class="num">$c_all</div><div class="lbl">ACTIVE (verified)</div></div>
-  <div class="card info"><div class="num">$f_total</div><div class="lbl">Findings</div></div>
-  <div class="card info"><div class="num">$c_subs</div><div class="lbl">Subdomains</div></div>
-  <div class="card info"><div class="num">$c_live</div><div class="lbl">Live hosts</div></div>
-  <div class="card info"><div class="num">$c_urls</div><div class="lbl">URLs</div></div>
-  <div class="card info"><div class="num">$c_js</div><div class="lbl">JS files</div></div>
-  <div class="card info"><div class="num">$c_mapsrc</div><div class="lbl">Source files</div></div>
-</div>
+
 <div style="padding:0 24px 16px">
   <input type="text" class="search-box" id="searchBox" placeholder="Search all tabs (endpoint, filename, any string)..." onkeyup="filterTabs()">
 </div>
@@ -3503,12 +3524,6 @@ body.light .card .num{color:var(--fg)}
   <div class="sidebar" id="sidebar">
 $tabs_def  </div>
   <div class="content">
-    <div class="timeline">
-      <h3>stage timeline</h3>
-$timeline_html    </div>
-    <div class="queue">
-      <h3>attack queue</h3>
-$queue_html    </div>
 $content_html  </div>
 </div>
 <script>
@@ -3520,21 +3535,31 @@ function openTab(evt,id){
   evt.currentTarget.classList.add('active');
 }
 function copyData(btn){
-  var ta=btn.parentElement.nextElementSibling;
-  ta.focus();ta.select();ta.setSelectionRange(0,99999);
+  var container=btn.parentElement.nextElementSibling;
+  var ta=(container.tagName==='TEXTAREA')?container:container.querySelector('.data-box');
+  var text=ta?ta.value:container.innerText;
   function done(){var o=btn.innerText;btn.innerText='Copied!';setTimeout(()=>btn.innerText=o,2000)}
-  if(navigator.clipboard&&location.protocol!=='file:'){navigator.clipboard.writeText(ta.value).then(done).catch(()=>{try{document.execCommand('copy')}catch(e){};done()})}
-  else{try{document.execCommand('copy')}catch(e){};done()}
+  if(navigator.clipboard&&location.protocol!=='file:'){navigator.clipboard.writeText(text).then(done).catch(()=>{fallback()})}
+  else{fallback()}
+  function fallback(){var tmp=document.createElement('textarea');tmp.value=text;tmp.style.position='fixed';tmp.style.opacity='0';document.body.appendChild(tmp);tmp.focus();tmp.select();try{document.execCommand('copy')}catch(e){};document.body.removeChild(tmp);done()}
 }
 function filterTabs(){
   var q=document.getElementById('searchBox').value.toLowerCase();
   document.querySelectorAll('.tabcontent').forEach(function(t){
+    var rows=t.querySelectorAll('.f-row');
+    if(rows.length){
+      if(q===''){rows.forEach(function(r){r.style.display=''});t.dataset.filtered='';t.style.display=(t.id===window._openTab)?'block':'none';return}
+      var vis=0;
+      rows.forEach(function(r){var show=r.textContent.toLowerCase().includes(q);r.style.display=show?'':'none';if(show)vis++});
+      t.dataset.filtered=vis>0?'yes':'no';
+      t.style.display=vis>0?'block':'none';
+      return;
+    }
     if(q===''){t.dataset.filtered='';t.style.display=(t.id===window._openTab)?'block':'none';var b0=t.querySelector('.data-box');if(b0&&b0.dataset.orig){b0.value=b0.dataset.orig}return}
     var txt=(t.innerText||'').toLowerCase();
     t.dataset.filtered=txt.includes(q)?'yes':'no';
     t.style.display=txt.includes(q)?'block':'none';
     if(txt.includes(q)){
-      // highlight matching lines
       var box=t.querySelector('.data-box');
       if(box){
         var lines=box.value.split('\n');
@@ -3556,7 +3581,7 @@ function filterTabs(){
   });
 }
 function toggleTheme(){document.body.classList.toggle('light')}
-var _ft=document.querySelector('.tabcontent');if(_ft){window._openTab=_ft.id}
+var _vis=[].slice.call(document.querySelectorAll('.tabcontent')).filter(function(t){return t.style.display==='block'})[0];if(_vis){window._openTab=_vis.id}
 </script>
 </body>
 </html>
