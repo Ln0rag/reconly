@@ -18,6 +18,7 @@ OBF_MAX_FILES=50
 JS_MAX_ROUNDS=4
 JS_PORTS="22 80 443 3000 4000 5000 6000 7000 8000 8080 8443 9000 8888 9999"
 KATANA_RL="${KATANA_RL:-40}"
+RECONLY_PAGE_THREADS="${RECONLY_PAGE_THREADS:-8}"
 RECONLY_AUTO_INSTALL="${RECONLY_AUTO_INSTALL:-1}"
 RECONLY_CHECK_UPDATES="${RECONLY_CHECK_UPDATES:-1}"
 TOOLS_HOME="${TOOLS_HOME:-$HOME/github-tools}"
@@ -74,7 +75,8 @@ run_stage() {
     return 0
 }
 stage_note() {
-    [ -n "${SESSION_DIR:-}" ] && printf '%s; ' "$1" >> "$SESSION_DIR/state/tmp/stage-notes-${CURRENT_STAGE:-misc}.txt" 2>/dev/null
+    [ -n "${SESSION_DIR:-}" ] || return 0
+    { printf '%s; ' "$1" >> "$SESSION_DIR/state/tmp/stage-notes-${CURRENT_STAGE:-misc}.txt"; } 2>/dev/null || true
     return 0
 }
 trap_ctrlc() {
@@ -211,9 +213,11 @@ maybe_fresh_restart() {
         return 0
     fi
     clear 2>/dev/null || true
+    local -a _ra=()
+    [ "${VERIFY_TOKENS:-0}" = "1" ] && _ra+=("--verify-tokens")
     out "${C_W}re-running: $0 $*${C_R}"
     rm -rf "$SESSION_DIR" 2>/dev/null || true
-    exec "$0" "$@"
+    exec "$0" "${_ra[@]+"${_ra[@]}"}" "$@"
 }
 
 codeql_pack_use_downloads() {
@@ -865,7 +869,7 @@ chmod 700 "$BASE_DIR" "$SESSION_DIR" 2>/dev/null || true
 cd "$SESSION_DIR" || exit 1
 
 export SESSION_DIR DOMAIN DOMAIN_ESCAPED FAKE_UA RESOLVERS \
-    RECONLY_JS_THREADS RECONLY_FETCH_THREADS RECONLY_MAX_PAGES JS_MAX_ROUNDS KATANA_HEADLESS \
+    RECONLY_JS_THREADS RECONLY_FETCH_THREADS RECONLY_PAGE_THREADS RECONLY_MAX_PAGES JS_MAX_ROUNDS KATANA_HEADLESS \
     PRETTIER_JOBS PRETTIER_BATCH PRETTIER_MAX_MB OBF_MAX_FILES JITTER_MIN JITTER_MAX
 
 STAGE_LOG="$SESSION_DIR/state/stage-log.tsv"
@@ -1495,6 +1499,7 @@ st_auth_lite() {
     local c_hdr=(); build_c_hdr
     : > "$SESSION_DIR/state/tmp/.auth-evidence"
     {
+        grep '^https://' "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null | grep -v ':30' | head -3
         head -3 "$SESSION_DIR/hosts/hosts-live.txt"
         grep ':3000' "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null | head -1
     } | awk '!seen[$0]++' | { while read -r _bu; do
@@ -1608,7 +1613,8 @@ st_crawl() {
 
     comm -23 <(grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" "$SESSION_DIR/urls/urls-archive.txt" | sort -u) <(sort -u "$SESSION_DIR/urls/crawl-katana.txt") | url_junk_filter | sort -u > "$SESSION_DIR/state/tmp/.archive-seeds-full.txt"
     _seed_total=$(wc -l < "$SESSION_DIR/state/tmp/.archive-seeds-full.txt" | tr -d ' '); _seed_total=${_seed_total:-0}
-    _seed_off=$(tr -d '[:space:]' < "$BASE_DIR/.seed-offset" 2>/dev/null); _seed_off=${_seed_off:-0}
+    if [ -f "$BASE_DIR/.seed-offset" ]; then _seed_off=$(tr -d '[:space:]' < "$BASE_DIR/.seed-offset"); else _seed_off=0; fi
+    _seed_off=${_seed_off:-0}
     if [ "${_seed_total:-0}" -le 500 ]; then
         cp "$SESSION_DIR/state/tmp/.archive-seeds-full.txt" "$SESSION_DIR/state/tmp/.archive-seeds.txt"
     else
@@ -1838,10 +1844,10 @@ st_js_pipeline() {
             local page_count
             page_count=$(wc -l < "$SESSION_DIR/state/tmp/.pages-temp.txt" | tr -d ' ')
             if [ "$page_count" -gt 0 ]; then
-                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ page_fetch${C_R} wave: cat .pages-temp.txt | xargs -d '\n' -P $RECONLY_FETCH_THREADS -n 1 bash -c 'for p in '\$@'; do page_fetch '\$p' || true; done' _   ($page_count pages)"
+                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ page_fetch${C_R} wave: cat .pages-temp.txt | xargs -d '\n' -P $RECONLY_PAGE_THREADS -n 1 bash -c 'for p in '\$@'; do page_fetch '\$p' || true; done' _   ($page_count pages)"
                 printf '%s\n' "$page_count" > "$SESSION_DIR/state/tmp/.js-total"
                 : > "$SESSION_DIR/state/tmp/.js-progress.log"
-                cat "$SESSION_DIR/state/tmp/.pages-temp.txt" | xargs -d '\n' -P "$RECONLY_FETCH_THREADS" -n 1 bash -c '
+                cat "$SESSION_DIR/state/tmp/.pages-temp.txt" | xargs -d '\n' -P "$RECONLY_PAGE_THREADS" -n 1 bash -c '
                     for p in "$@"; do
                         if page_fetch "$p"; then js_progress OK "$p" "$PAGE_LAST_CODE"; else js_progress FAIL "$p" "$PAGE_LAST_CODE"; fi
                     done
@@ -2027,22 +2033,22 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
     fi
 }
 st_analysis_local() {
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ jsluice${C_R} secrets + urls: find js/raw js/deobf js/mapsrc -name '*.js' -size -20M | xargs -0 -P $PRETTIER_JOBS -I {} bash -c 'jsluice secrets + jsluice urls' _"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ jsluice${C_R} secrets + urls: find js/{raw,deobf,mapsrc,json} -type f -size -20M \( -name '*.js' -o -name '*.json' \) | xargs -0 -P $PRETTIER_JOBS -n 1 bash -c 'jsluice secrets + jsluice urls' _"
     mkdir -p "$SESSION_DIR/state/tmp/jsluice-out"
     : > "$SESSION_DIR/state/tmp/jsluice-failed.txt"
     : > "$SESSION_DIR/findings/secrets/jsluice-secrets.txt"
     : > "$SESSION_DIR/findings/surface/jsluice-endpoints.txt"
-    find "$SESSION_DIR/js/raw" "$SESSION_DIR/js/deobf" "$SESSION_DIR/js/mapsrc" "$SESSION_DIR/js/json" -type f -size -20M \( -name '*.js' -o -name '*.json' \) -print0 2>/dev/null | xargs -0 -P "$PRETTIER_JOBS" -I {} bash -c '
+    find "$SESSION_DIR/js/raw" "$SESSION_DIR/js/deobf" "$SESSION_DIR/js/mapsrc" "$SESSION_DIR/js/json" -type f -size -20M \( -name '*.js' -o -name '*.json' \) -print0 2>/dev/null | xargs -0 -P "$PRETTIER_JOBS" -n 1 bash -c '
         f="$1"; d="'"$SESSION_DIR/state/tmp/jsluice-out"'/$(printf "%s" "$f" | md5sum | cut -c1-12)"
         mkdir -p "$d"
         jsluice secrets "$f" > "$d/secrets.jsonl" 2> "$d/secrets.err" || printf "%s\n" "$f" >> "'"$SESSION_DIR/state/tmp"'/jsluice-failed.txt"
-        _org=$(awk -F'|' -v ff="$(basename "$f")" '$1==ff{print $2; exit}' "'"$SESSION_DIR"'/state/url-map.txt" 2>/dev/null)
+        _org=$(awk -F"|" -v ff="$(basename "$f")" '$1==ff{print $2; exit}' "'"$SESSION_DIR"'/state/url-map.txt" 2>/dev/null)
         if [ -n "$_org" ]; then
             jsluice urls -R "$_org" "$f" > "$d/urls.jsonl" 2> "$d/urls.err" || true
         else
             jsluice urls "$f" > "$d/urls.jsonl" 2> "$d/urls.err" || true
         fi
-    ' _ {}
+    ' _
     find "$SESSION_DIR/state/tmp/jsluice-out" -name secrets.jsonl -exec cat {} + 2>/dev/null | jq -r 'select(.kind != null) | "\(.filename // .file // "?") :: \(.kind) :: \(.data | tostring | .[0:120])"' 2>/dev/null | awk -F' :: ' -v sidecar="$SESSION_DIR/state/value-locations.tsv" '{if(NF>=3){k=$2" :: "$3; if(k in seen){if($1!="")printf "%s\t%s\n",k,$1 >> sidecar;next} seen[k]=1} print}' | sort -u > "$SESSION_DIR/findings/secrets/jsluice-secrets.txt"
     find "$SESSION_DIR/state/tmp/jsluice-out" -name urls.jsonl -exec cat {} + 2>/dev/null | jq -r '.url? // empty' 2>/dev/null | sed -E 's|^https?://[^/]+||' | grep -E '^/' | sort -u > "$SESSION_DIR/findings/surface/jsluice-endpoints.txt"
     local _jsfail_count _jsraw_count
@@ -2105,7 +2111,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ noseyparker${C_R} sca
     fi
 
     if command -v trivy &>/dev/null; then
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ trivy${C_R} fs --scanners secret,vuln,config --format json js/"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ trivy${C_R} fs --scanners secret,config --format json js/"
         timeout --foreground 900 trivy fs --scanners secret,config --format json --quiet "$SESSION_DIR/js" > "$SESSION_DIR/state/tmp/trivy.json" 2>/dev/null || warn_rc "trivy" 1
         jq -r '.Results[]? | .Type as $t | ((.Secrets // [])[] | "secret|\($t)|\(.RuleID)|\(.Title)|line \(.StartLine)"), ((.Misconfigurations // [])[] | "config|\($t)|\(.ID // .AVDID)|\(.Title)|line \(.CauseMetadata.StartLine // 0)"), ((.Vulnerabilities // [])[] | "vuln|\(.PkgName)@\(.InstalledVersion)|\(.VulnerabilityID)|\(.Severity)")' "$SESSION_DIR/state/tmp/trivy.json" 2>/dev/null | sort -u > "$SESSION_DIR/findings/analysis/trivy.txt"
         rm -f "$SESSION_DIR/state/tmp/trivy.json"
@@ -2201,11 +2207,11 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
     hunt "GraphQL ops" '(query|mutation)\s+[a-zA-Z0-9_]+\s*\{' "graphql.txt" "" "INFO"
     hunt "Dev comments" '(?<=//|/\*)\s*(TODO|FIXME|HACK|BUG|XXX)[^\r\n]{0,120}' "dev-comments.txt" "" "INFO"
     hunt "WebSockets" 'wss?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "websockets.txt" '(localhost|example)' "INFO"
-    hunt "Emails" '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "emails.txt" '(sentry\.io|example\.com|w3\.org|@2x|@3x)' "INFO"
-    hunt "IPs" '\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\b' "ip-addresses.txt" '(0\.0\.0\.0|127\.0\.0\.1|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[01]\.|255\.255)' "INFO"
+    hunt "Emails" '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "emails.txt" '(sentry\.io|example\.|w3\.org|@2x|@3x|aa@yy\.xyz|somethingdoug|shtylman|onur\.cakmak|^user@site)' "INFO"
+    hunt "IPs" '\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\b' "ip-addresses.txt" '(0\.0\.0\.0|127\.0\.0\.1|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[01]\.|255\.255|^([0-9]{1,2}\.){3}[0-9]{1,2}$)' "INFO"
     hunt "Debug flags" '(?i)\bdebug\b\s*[:=]\s*[\x22\x27]?(true|1)' "debug-flags.txt" '(example)' "INFO"
     hunt "External URLs" 'https?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "js-external-urls.txt" '(w3\.org|react\.dev|localhost|github\.com|github\.io|npmjs\.com|mozilla\.org|example\.com|stackoverflow\.com|googleapis\.com|gstatic\.com|cloudflare\.com|jsdelivr\.net|unpkg\.com|google-analytics\.com|googletagmanager\.com|facebook\.net|facebook\.com|twitter\.com|x\.com|wikimedia\.org|wikipedia\.org|flagcdn\.com|whatwg\.org|rfc-editor\.org|iana\.org|ecma-international\.org|unicode\.org|crisp\.chat|sentry-cdn|sentry\.io|\.png|\.jpe?g|\.gif|\.svg|\.webp|\.avif|\.ico|\.woff2?|\.ttf|\.css)(\?|$)' "INFO"
-    hunt "Generic secrets" '(?i)(api[_-]?key|apikey|secret|token|password|auth[_-]?token)[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9\-_=]{16,}' "generic-secrets.txt" '(undefined|null|true|false|function|your[a-z0-9_-]*|changeme|placeholder|dummy|redacted|x{8,}|\*{8,}|123456789|example)' "MEDIUM" "3.4"
+    hunt "Generic secrets" '(?i)(api[_-]?key|apikey|secret|token|password|auth[_-]?token)[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9\-_=]{16,}' "generic-secrets.txt" '(undefined|null|true|false|function|your[a-z0-9_-]*|changeme|placeholder|dummy|redacted|x{8,}|\*{8,}|123456789|example|[:=][[:space:]]*[\x22\x27]?[_$][a-zA-Z0-9_$]+[\x22\x27]?$)' "MEDIUM" "3.4"
     hunt "Cloud keys II" '\b(oci1\.[a-z0-9]{15,}|LTAI[A-Za-z0-9]{12,}|cf_[a-zA-Z0-9_]{30,}|dckr_pat_[A-Za-z0-9_-]{20,}|fo1_[A-Za-z0-9_]{30,}|scw_[a-f0-9]{30,}|hcloud_[A-Za-z0-9]{30,}|do_pat_[A-Za-z0-9_-]{40,}|vultr_[a-f0-9]{30,})\b' "cloud-keys-2.txt" '(example|test)' "CRITICAL" "3.0"
     hunt "Comms API keys" '\b(key-[0-9a-f]{32}|AC[0-9a-f]{32}:[0-9a-f]{32}|pm_[a-zA-Z0-9]{20,}|mg\.[A-Za-z0-9]{20,}|mc\.[a-f0-9]{32}|plivo_[a-zA-Z0-9]{30,}|vonage[-_][a-z0-9]{20,}|ably-[a-zA-Z0-9_-]{30,}|pub-[a-f0-9]{32}|sub-[a-f0-9]{32}|bird_[a-zA-Z0-9]{20,})\b' "comms-keys.txt" '(test|example)' "CRITICAL" "3.0"
     hunt "Auth provider tokens" '\b(00[A-Za-z0-9_-]{40}|ssws [A-Za-z0-9=_-]{20,}|eyJhbGciOiJSUzI1NiIsImtpZCI6[A-Za-z0-9_-]{10,})\b' "auth-provider.txt" "(test)" "CRITICAL" "3.2"
@@ -2224,7 +2230,8 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
     local seenfile="$SESSION_DIR/state/tmp/.seen-values"
     : > "$seenfile"
     : > "$SESSION_DIR/state/value-locations.tsv"
-    for f in cloud-tokens.txt private-keys.txt private-keys-2.txt db-creds.txt basic-auth.txt signing-secrets.txt url-secrets.txt oauth-secrets.txt auth-tokens.txt azure-keys.txt service-accounts.txt payment-webhooks.txt ai-keys.txt ai-keys-2.txt devops-tokens.txt saas-tokens.txt saas-keys.txt tp-webhooks.txt hardcoded-bearer.txt presigned-urls.txt presigned-urls-2.txt smtp-creds.txt baas-pairs.txt generic-secrets.txt cloud-keys-2.txt comms-keys.txt auth-provider.txt payments-crypto.txt registry-ci.txt observability.txt config-file-secrets.txt; do
+    local _dedup_order="cloud-tokens.txt private-keys.txt private-keys-2.txt db-creds.txt basic-auth.txt signing-secrets.txt config-file-secrets.txt comms-keys.txt auth-provider.txt payments-crypto.txt cloud-keys-2.txt ai-keys.txt ai-keys-2.txt payment-webhooks.txt devops-tokens.txt registry-ci.txt observability.txt auth-tokens.txt oauth-secrets.txt url-secrets.txt saas-tokens.txt saas-keys.txt tp-webhooks.txt hardcoded-bearer.txt presigned-urls.txt presigned-urls-2.txt azure-keys.txt service-accounts.txt smtp-creds.txt baas-pairs.txt generic-secrets.txt"
+    for f in $_dedup_order $(ls "$SESSION_DIR/findings/secrets/"*.txt 2>/dev/null | xargs -r -n1 basename | grep -vxF "$_dedup_order" | sort); do
         [ -s "$SESSION_DIR/findings/secrets/$f" ] || continue
         awk -F: -v seenfile="$seenfile" -v sidecar="$SESSION_DIR/state/value-locations.tsv" 'BEGIN{while((getline l<seenfile)>0)seen[l]=1}{key="";for(i=3;i<=NF;i++)key=key $i (i<NF?":":"");if(key in seen){if($1!="")printf "%s\t%s\n",key,$1 >> sidecar;next}print;seen[key]=1}' "$SESSION_DIR/findings/secrets/$f" > "$SESSION_DIR/state/tmp/.tmp.$f"
         awk -F: '{key="";for(i=3;i<=NF;i++)key=key $i (i<NF?":":"");print key}' "$SESSION_DIR/state/tmp/.tmp.$f" >> "$seenfile"
@@ -2586,7 +2593,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R} -a -C 2 -F '
         : > "$ctx_dir/$tf"
         head -3 "$SESSION_DIR/findings/secrets/$tf" | while IFS= read -r ctxline; do
             local firstmatch
-            firstmatch=$(printf '%s' "$ctxline" | sed 's/^[^:]*:[0-9]*://')
+            firstmatch=$(printf '%s' "$ctxline" | sed 's/^[^:]*:[0-9]*://' | sed 's/  |  \(FILE\|URL\):.*$//')
             [ -n "$firstmatch" ] || continue
             for rep in mapsrc formatted; do
                 [ -d "$SESSION_DIR/js/$rep" ] || continue
@@ -2811,19 +2818,21 @@ st_quick_probes() {
 
     out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} <host> -w %{http_code}   (gated-host + sensitive-file + hidden-endpoint probes, parallel)"
     : > "$SESSION_DIR/findings/probes/hosts-auth-required.txt"
-    cat "$hl" | xargs -d '\n' -P 20 -I {} bash -c '
+    _qp_ck="$ckcfg"
+    export _qp_ck
+    cat "$hl" | xargs -d '\n' -P 20 -n 1 bash -c '
         c=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" "$1" 2>/dev/null)
         case "$c" in
             401|403)
-                if [ -n "'"$ckcfg"'" ]; then
-                    c2=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" -K "'"$ckcfg"'" "$1" 2>/dev/null)
-                    echo "$1 -> $c anon / $c2 with cookie" >> "'"$SESSION_DIR"'/findings/probes/hosts-auth-required.txt"
+                if [ -n "$_qp_ck" ]; then
+                    c2=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" -K "$_qp_ck" "$1" 2>/dev/null)
+                    echo "$1 -> $c anon / $c2 with cookie" >> "$SESSION_DIR/findings/probes/hosts-auth-required.txt"
                 else
-                    echo "$1 -> $c" >> "'"$SESSION_DIR"'/findings/probes/hosts-auth-required.txt"
+                    echo "$1 -> $c" >> "$SESSION_DIR/findings/probes/hosts-auth-required.txt"
                 fi
                 ;;
         esac
-    ' _ {}
+    ' _
     : > "$SESSION_DIR/findings/probes/sensitive-files-live.txt"
     [ -s "$SESSION_DIR/urls/urls-artifacts.txt" ] && head -40 "$SESSION_DIR/urls/urls-artifacts.txt" | xargs -d '\n' -P 15 -I {} bash -c '
         c=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" "$1" 2>/dev/null)
@@ -2835,19 +2844,21 @@ st_quick_probes() {
         cat "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" 2>/dev/null
     } | sort -u | head -100 > "$SESSION_DIR/state/tmp/.qp-he.txt"
     if [ -s "$SESSION_DIR/state/tmp/.qp-he.txt" ]; then
-        base=$(head -1 "$SESSION_DIR/state/tmp/.qp-origins.txt")
-        cat "$SESSION_DIR/state/tmp/.qp-he.txt" | xargs -d '\n' -P 15 -I {} bash -c '
-            c=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" "'"$base"'"$1" 2>/dev/null)
+        _qp_base=$(head -1 "$SESSION_DIR/state/tmp/.qp-origins.txt")
+        _qp_ck="$ckcfg"
+        export _qp_base _qp_ck
+        cat "$SESSION_DIR/state/tmp/.qp-he.txt" | xargs -d '\n' -P 15 -n 1 bash -c '
+            c=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" "$_qp_base$1" 2>/dev/null)
             if [ "$c" = "200" ]; then
-                echo "'"$base"'"$1" -> 200" >> "'"$SESSION_DIR"'/findings/probes/hidden-endpoints.txt"
-            elif { [ "$c" = "401" ] || [ "$c" = "403" ]; } && [ -n "'"$ckcfg"'" ]; then
-                c2=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" -K "'"$ckcfg"'" "'"$base"'"$1" 2>/dev/null)
+                echo "$_qp_base$1 -> 200" >> "$SESSION_DIR/findings/probes/hidden-endpoints.txt"
+            elif { [ "$c" = "401" ] || [ "$c" = "403" ]; } && [ -n "$_qp_ck" ]; then
+                c2=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" -K "$_qp_ck" "$_qp_base$1" 2>/dev/null)
                 case "$c2" in
-                    2*) echo "'"$base"'"$1" -> $c anon / $c2 with cookie (session-gated)" >> "'"$SESSION_DIR"'/findings/probes/hidden-endpoints.txt"
-                        echo "'"$base"'"$1" -> $c anon / $c2 with cookie (session-gated)" >> "'"$SESSION_DIR"'/findings/probes/auth-surface-map.txt" ;;
+                    2*) echo "$_qp_base$1 -> $c anon / $c2 with cookie (session-gated)" >> "$SESSION_DIR/findings/probes/hidden-endpoints.txt"
+                        echo "$_qp_base$1 -> $c anon / $c2 with cookie (session-gated)" >> "$SESSION_DIR/findings/probes/auth-surface-map.txt" ;;
                 esac
             fi
-        ' _ {}
+        ' _
     fi
     rm -f "$SESSION_DIR/state/tmp/.qp-he.txt"
 
@@ -3050,9 +3061,11 @@ st_report() {
 
     local timeline_html=""
     while IFS=$'\t' read -r name rc dur stat; do
-        local icon color
+        local icon color _en _es
         if [ "$rc" = "0" ]; then icon="ok"; color="#3fb950"; else icon="FAIL"; color="#f85149"; fi
-        timeline_html+="            <div class=\"tl-row\"><span class=\"tl-icon\" style=\"color:${color}\">${icon}</span><span class=\"tl-name\">${name}</span><span class=\"tl-dur\">${dur}</span><span class=\"tl-stat\">${stat}</span></div>"$'\n'
+        _en=$(printf '%s' "$name" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+        _es=$(printf '%s' "$stat" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+        timeline_html+="            <div class=\"tl-row\"><span class=\"tl-icon\" style=\"color:${color}\">${icon}</span><span class=\"tl-name\">${_en}</span><span class=\"tl-dur\">${dur}</span><span class=\"tl-stat\">${_es}</span></div>"$'\n'
     done < "$STAGE_LOG"
     timeline_html+="            <div class=\"tl-row\"><span class=\"tl-icon\" style=\"color:#3fb950\">ok</span><span class=\"tl-name\">report</span><span class=\"tl-dur\">-</span><span class=\"tl-stat\">this file</span></div>"$'\n'
 
@@ -3063,7 +3076,7 @@ st_report() {
         local sline esc_s
         while IFS= read -r sline; do
             [ -z "$sline" ] && continue
-            esc_s=$(printf '%s' "$sline" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' | cut -c1-220)
+            esc_s=$(printf '%s' "$sline" | cut -c1-220 | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
             queue_html+="            <div class=\"q-row\"><span class=\"q-badge\" style=\"background:#f85149\">CRITICAL</span><span class=\"q-text\">${esc_s}</span></div>"$'\n'
         done < <(head -3 "$sfp")
     done
@@ -3083,7 +3096,7 @@ st_report() {
                 local _vrest _vfile _vln _vverd
                 _vfile="${line%%|*}"; _vrest="${line#*|}"
                 _vln="${_vrest%%|*}"; _vverd="${_vrest##*|}"
-                esc_line="${_vfile}:${_vln} -- ${_vverd}"
+                esc_line=$(printf '%s:%s -- %s' "$_vfile" "$_vln" "$_vverd" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
                 case "$_vverd" in
                     HIGH*) lsev="HIGH"; lcolor="#db6d28" ;;
                     INFO*) lsev="INFO"; lcolor="#8b949e" ;;
@@ -3470,6 +3483,7 @@ body.light .card .num{color:var(--fg)}
   </div>
   <button class="theme-btn" onclick="toggleTheme()">Toggle theme</button>
 </div>
+<noscript><style>.sidebar{display:none}.tabcontent{display:block !important;margin-bottom:24px}.main{display:block}.search-box{display:none}</style><div style="background:#d29922;color:#000;padding:10px 24px;font-weight:700">JavaScript is disabled in your browser (check Brave Shields / script blockers) -- showing all tabs stacked below. Use Ctrl+F to search, or enable JS for the full tabbed UI.</div></noscript>
 <div class="strip">
   <div class="card crit"><div class="num">$f_crit</div><div class="lbl">CRITICAL (pattern)</div></div>
   <div class="card high"><div class="num">$f_high</div><div class="lbl">HIGH (pattern)</div></div>
