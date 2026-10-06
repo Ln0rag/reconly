@@ -57,6 +57,15 @@ warn_rc() {
     [ "${rc:-0}" -eq 0 ] && return 0
     out "${C_Y}[warn] $name exited rc=$rc, continuing${C_R}"
 }
+cap_run() {
+    local mem_mb="$1" nice_lvl="$2"
+    shift 2
+    if command -v systemd-run >/dev/null 2>&1 && systemd-run --user --scope -p MemoryMax=1M true >/dev/null 2>&1; then
+        systemd-run --user --scope --quiet -p "MemoryMax=${mem_mb}M" -p "MemoryHigh=$((mem_mb * 85 / 100))M" -p MemorySwapMax=0 -p "CPUWeight=40" -- nice -n "$nice_lvl" "$@"
+    else
+        ( ulimit -v $((mem_mb * 1024)) 2>/dev/null; exec nice -n "$nice_lvl" ionice -c2 -n7 "$@" 2>/dev/null || exec nice -n "$nice_lvl" "$@" )
+    fi
+}
 run_stage() {
     local name="$1"
     local t0 t1 stat rc
@@ -1598,14 +1607,14 @@ st_crawl() {
         fi
     done < "$SESSION_DIR/hosts/hosts-live.txt"
 
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 5 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef '$katana_ef' < hosts-katana.txt | awk '!seen[\$0]++' > urls/crawl-katana.txt || true"
-    GOMEMLIMIT=4GiB timeout --foreground 3000 katana -d 5 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef "$katana_ef" "${katana_h[@]+${katana_h[@]}}" 2>/dev/null < "$SESSION_DIR/hosts/hosts-katana.txt" | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-katana.txt" || true
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 5 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef '$katana_ef' < hosts-katana.txt | awk '!seen[\$0]++' > urls/crawl-katana.txt || true"
+    GOMEMLIMIT=3GiB timeout --foreground 3000 cap_run 3584 10 katana -d 5 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef "$katana_ef" "${katana_h[@]+${katana_h[@]}}" 2>/dev/null < "$SESSION_DIR/hosts/hosts-katana.txt" | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-katana.txt" || true
     out "${C_W}katana: $(wc -l < "$SESSION_DIR/urls/crawl-katana.txt" 2>/dev/null | tr -d ' ') URLs${C_R}"
     cat "$SESSION_DIR/urls/crawl-katana.txt" 
 
     if [ -n "$AUTH_COOKIE" ]; then
-        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef '$katana_ef' -H 'Cookie: ***' < hosts-katana.txt | awk '!seen[\$0]++' > urls/crawl-auth.txt || true"
-        GOMEMLIMIT=4GiB timeout --foreground 3000 katana -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef "$katana_ef" "${katana_h[@]+${katana_h[@]}}" 2>/dev/null < "$SESSION_DIR/hosts/hosts-katana.txt" | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-auth.txt" || true
+        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 3 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef '$katana_ef' -H 'Cookie: ***' < hosts-katana.txt | awk '!seen[\$0]++' > urls/crawl-auth.txt || true"
+        GOMEMLIMIT=3GiB timeout --foreground 3000 cap_run 3584 10 katana -d 3 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef "$katana_ef" "${katana_h[@]+${katana_h[@]}}" 2>/dev/null < "$SESSION_DIR/hosts/hosts-katana.txt" | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-auth.txt" || true
         out "${C_W}katana+auth: $(wc -l < "$SESSION_DIR/urls/crawl-auth.txt" 2>/dev/null | tr -d ' ') URLs${C_R}"
         cat "$SESSION_DIR/urls/crawl-auth.txt" 
         comm -23 <(sort -u "$SESSION_DIR/urls/crawl-auth.txt") <(sort -u "$SESSION_DIR/urls/crawl-katana.txt") > "$SESSION_DIR/urls/urls-auth-only.txt"
@@ -1627,7 +1636,7 @@ st_crawl() {
     if [ "$katana_count" -lt 100 ]; then
         local gospider_args=(-S "$SESSION_DIR/hosts/hosts-katana.txt" -d 3 -c 5 -t 30 --js --sitemap -a "$FAKE_UA" -s 5 -k 2)
         [ -n "$AUTH_COOKIE" ] && gospider_args+=(-C "$AUTH_COOKIE")
-        GOMEMLIMIT=2GiB timeout --foreground 1200 gospider "${gospider_args[@]}" 2>"$SESSION_DIR/state/tmp/gospider.err" | grep -oaE "https?://[^\"'<>() ]+" | sed 's/[.,;)]$//' | sort -u > "$SESSION_DIR/urls/crawl-gospider.txt" || true
+        GOMEMLIMIT=1536MiB timeout --foreground 1200 cap_run 2048 10 gospider "${gospider_args[@]}" 2>"$SESSION_DIR/state/tmp/gospider.err" | grep -oaE "https?://[^\"'<>() ]+" | sed 's/[.,;)]$//' | sort -u > "$SESSION_DIR/urls/crawl-gospider.txt" || true
         if [ ! -s "$SESSION_DIR/urls/crawl-gospider.txt" ]; then
             out "${C_Y}[warn] gospider produced 0 URLs -- stderr: $(tail -3 "$SESSION_DIR/state/tmp/gospider.err" 2>/dev/null | tr '\n' ' | ' | cut -c1-200)${C_R}"
             stage_note "gospider-empty"
@@ -1661,8 +1670,8 @@ st_crawl() {
         local seed_count full_seed_count
         full_seed_count=$_seed_total
         seed_count=$(wc -l < "$SESSION_DIR/state/tmp/.archive-seeds.txt" | tr -d ' ')
-        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -u .archive-seeds.txt -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl [-H Cookie: ***] | awk '!seen[\$0]++' > urls/crawl-archive.txt || true"
-        GOMEMLIMIT=4GiB timeout --foreground 1800 katana -u "$SESSION_DIR/state/tmp/.archive-seeds.txt" -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl "${katana_h[@]+${katana_h[@]}}" 2>/dev/null | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-archive.txt" || true
+        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -u .archive-seeds.txt -d 3 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl [-H Cookie: ***] | awk '!seen[\$0]++' > urls/crawl-archive.txt || true"
+        GOMEMLIMIT=3GiB timeout --foreground 1800 cap_run 3584 10 katana -u "$SESSION_DIR/state/tmp/.archive-seeds.txt" -d 3 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl "${katana_h[@]+${katana_h[@]}}" 2>/dev/null | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-archive.txt" || true
         cat "$SESSION_DIR/urls/crawl-archive.txt" 
         comm -23 <(grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" "$SESSION_DIR/urls/crawl-archive.txt" 2>/dev/null | sort -u) <(grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" "$SESSION_DIR/urls/crawl-katana.txt" 2>/dev/null | sort -u) | url_junk_filter > "$SESSION_DIR/urls/urls-revived.txt"
         local rev_count
@@ -2539,12 +2548,12 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ codeql${C_R} database
         [ -s "$SESSION_DIR/state/tmp/.cq-dups" ] && xargs -r rm -f < "$SESSION_DIR/state/tmp/.cq-dups"
         rm -f "$SESSION_DIR/state/tmp/.cq-dups"
         if [ -n "$(find "$SESSION_DIR/state/tmp/.codeql-src" -type f -print -quit 2>/dev/null)" ]; then
-            if codeql database create "$SESSION_DIR/state/tmp/.codeql-db" --language=javascript --source-root="$SESSION_DIR/state/tmp/.codeql-src" --overwrite >/dev/null; then
+            if timeout --foreground 900 codeql database create "$SESSION_DIR/state/tmp/.codeql-db" --language=javascript --source-root="$SESSION_DIR/state/tmp/.codeql-src" --overwrite --threads="$PRETTIER_JOBS" >/dev/null; then
                 local _cq_rc=0
                 local -a _cq_cache=()
                 mkdir -p "$HOME/github-tools/.codeql/compilation-cache" 2>/dev/null || true
                 codeql database analyze --help 2>/dev/null | grep -q -- '--compilation-cache' && _cq_cache=(--compilation-cache "$HOME/github-tools/.codeql/compilation-cache")
-                codeql database analyze "$SESSION_DIR/state/tmp/.codeql-db" "$_cq_suite" "${_cq_extra[@]+${_cq_extra[@]}}" "${_cq_cache[@]+${_cq_cache[@]}}" --format=sarif-latest --output="$SESSION_DIR/state/tmp/.codeql.sarif" --threads=0 >/dev/null || _cq_rc=$?
+                timeout --foreground 1800 codeql database analyze "$SESSION_DIR/state/tmp/.codeql-db" "$_cq_suite" "${_cq_extra[@]+${_cq_extra[@]}}" "${_cq_cache[@]+${_cq_cache[@]}}" --format=sarif-latest --output="$SESSION_DIR/state/tmp/.codeql.sarif" --threads="$PRETTIER_JOBS" --ram=4096 >/dev/null || _cq_rc=$?
                 [ "$_cq_rc" -ne 0 ] && warn_rc "codeql analyze" "$_cq_rc"
                 jq -r '.runs[].results[]? | .ruleId' "$SESSION_DIR/state/tmp/.codeql.sarif" 2>/dev/null | sort | uniq -c | sort -rn | head -100 | awk '{printf "%6d x %s\n", $1, substr($0, index($0,$2))}' > "$SESSION_DIR/findings/analysis/codeql-findings.txt"
                 [ -s "$SESSION_DIR/findings/analysis/codeql-findings.txt" ] && cat "$SESSION_DIR/findings/analysis/codeql-findings.txt"
