@@ -470,16 +470,13 @@ pip_fetch_segmented() {
     _d=$(mktemp -d 2>/dev/null) || return 1
     _idx="${PIP_FAST_INDEX%/}/$_pkg/"
     _html=$(curl -sS -m 30 "$_idx" 2>/dev/null)
-    _url=$(printf '%s' "$_html" | python3 - "$_idx" 2>/dev/null <<'PYEOF'
-import sys, re, urllib.parse
+    _url=$(printf '%s' "$_html" | python3 -c 'import sys, re, urllib.parse
 base, html = sys.argv[1], sys.stdin.read()
 best = None
-for href, name in re.findall(r'href="([^"]+\.whl)#sha256=[0-9a-f]+"[^>]*>([^<]+)</a>', html):
-    if 'x86_64' in name and ('manylinux' in name or 'musllinux' in name):
+for href, name in re.findall(r"href=\"([^\"]+\.whl)#sha256=[0-9a-f]+\"[^>]*>([^<]+)</a>", html):
+    if "x86_64" in name and ("manylinux" in name or "musllinux" in name):
         best = urllib.parse.urljoin(base, href)
-print(best or '')
-PYEOF
-    )
+print(best or "")' "$_idx" 2>/dev/null)
     if [ -z "$_url" ]; then rm -rf "$_d"; return 1; fi
     _fname="${_url##*/}"
     _size=$(curl -sIL -m 30 "$_url" 2>/dev/null | tr -d '\r' | grep -i '^content-length:' | tail -1 | awk '{print $2}')
@@ -1632,6 +1629,7 @@ st_crawl() {
     _seed_total=$(wc -l < "$SESSION_DIR/state/tmp/.archive-seeds-full.txt" | tr -d ' '); _seed_total=${_seed_total:-0}
     if [ -f "$BASE_DIR/.seed-offset" ]; then _seed_off=$(tr -d '[:space:]' < "$BASE_DIR/.seed-offset"); else _seed_off=0; fi
     _seed_off=${_seed_off:-0}
+    case "$_seed_off" in ''|*[!0-9]*) _seed_off=0 ;; esac
     if [ "${_seed_total:-0}" -le 500 ]; then
         cp "$SESSION_DIR/state/tmp/.archive-seeds-full.txt" "$SESSION_DIR/state/tmp/.archive-seeds.txt"
     else
