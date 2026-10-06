@@ -1584,14 +1584,28 @@ st_crawl() {
     for _eh in "${EXTRA_HEADERS[@]+${EXTRA_HEADERS[@]}}"; do katana_h+=(-H "$_eh"); done
     local katana_ef="css,png,jpg,jpeg,gif,svg,ico,webp,avif,bmp,tiff,woff,woff2,ttf,otf,eot,pdf,zip,tar,tgz,gz,bz2,xz,7z,rar,mp3,wav,ogg,m4a,mp4,webm,avi,mov,mkv"
 
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 5 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef '$katana_ef' < hosts-live.txt | awk '!seen[\$0]++' > urls/crawl-katana.txt || true"
-    timeout --foreground 3000 katana -d 5 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef "$katana_ef" "${katana_h[@]+${katana_h[@]}}" 2>/dev/null < "$SESSION_DIR/hosts/hosts-live.txt" | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-katana.txt" || true
+    : > "$SESSION_DIR/hosts/hosts-katana.txt"
+    while IFS= read -r _kh; do
+        [ -n "$_kh" ] || continue
+        _kp1="/reconly-probe-$RANDOM$RANDOM"; _kp2="/reconly-probe-$RANDOM$RANDOM"
+        _kc1=$(curl -s -o /dev/null -w "%{http_code}" -m 8 -A "$FAKE_UA" "${_kh}${_kp1}" 2>/dev/null)
+        _kc2=$(curl -s -o /dev/null -w "%{http_code}" -m 8 -A "$FAKE_UA" "${_kh}${_kp2}" 2>/dev/null)
+        if [ "$_kc1" = "200" ] && [ "$_kc2" = "200" ]; then
+            out "${C_Y}[stealth] ${_kh} returns 200 for random paths (soft-200) -- excluding from crawler input${C_R}"
+            stage_note "soft200=$_kh"
+        else
+            printf '%s\n' "$_kh" >> "$SESSION_DIR/hosts/hosts-katana.txt"
+        fi
+    done < "$SESSION_DIR/hosts/hosts-live.txt"
+
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 5 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef '$katana_ef' < hosts-katana.txt | awk '!seen[\$0]++' > urls/crawl-katana.txt || true"
+    GOMEMLIMIT=4GiB timeout --foreground 3000 katana -d 5 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef "$katana_ef" "${katana_h[@]+${katana_h[@]}}" 2>/dev/null < "$SESSION_DIR/hosts/hosts-katana.txt" | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-katana.txt" || true
     out "${C_W}katana: $(wc -l < "$SESSION_DIR/urls/crawl-katana.txt" 2>/dev/null | tr -d ' ') URLs${C_R}"
     cat "$SESSION_DIR/urls/crawl-katana.txt" 
 
     if [ -n "$AUTH_COOKIE" ]; then
-        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef '$katana_ef' -H 'Cookie: ***' < hosts-live.txt | awk '!seen[\$0]++' > urls/crawl-auth.txt || true"
-        timeout --foreground 3000 katana -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef "$katana_ef" "${katana_h[@]+${katana_h[@]}}" 2>/dev/null < "$SESSION_DIR/hosts/hosts-live.txt" | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-auth.txt" || true
+        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef '$katana_ef' -H 'Cookie: ***' < hosts-katana.txt | awk '!seen[\$0]++' > urls/crawl-auth.txt || true"
+        GOMEMLIMIT=4GiB timeout --foreground 3000 katana -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -aff -fs rdn -ef "$katana_ef" "${katana_h[@]+${katana_h[@]}}" 2>/dev/null < "$SESSION_DIR/hosts/hosts-katana.txt" | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-auth.txt" || true
         out "${C_W}katana+auth: $(wc -l < "$SESSION_DIR/urls/crawl-auth.txt" 2>/dev/null | tr -d ' ') URLs${C_R}"
         cat "$SESSION_DIR/urls/crawl-auth.txt" 
         comm -23 <(sort -u "$SESSION_DIR/urls/crawl-auth.txt") <(sort -u "$SESSION_DIR/urls/crawl-katana.txt") > "$SESSION_DIR/urls/urls-auth-only.txt"
@@ -1607,13 +1621,13 @@ st_crawl() {
         [ "$auth_count" -gt 0 ] && { out "${C_Y}$auth_count URLs reachable ONLY with auth${C_R}"; cat "$SESSION_DIR/urls/urls-auth-only.txt"; }
     fi
 
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ gospider${C_R} -S hosts-live.txt -d 3 -c 5 -t 30 --js --sitemap -a '$FAKE_UA' -s 5 -k 2 [-C ***] | grep -oaE 'https?://[^''<>() ]+' | sed 's/[.,;)]$//' | sort -u > urls/crawl-gospider.txt || true"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ gospider${C_R} -S hosts-katana.txt -d 3 -c 5 -t 30 --js --sitemap -a '$FAKE_UA' -s 5 -k 2 [-C ***] | grep -oaE 'https?://[^''<>() ]+' | sed 's/[.,;)]$//' | sort -u > urls/crawl-gospider.txt || true"
     local katana_count
     katana_count=$(wc -l < "$SESSION_DIR/urls/crawl-katana.txt" 2>/dev/null | tr -d ' '); katana_count=${katana_count:-0}
     if [ "$katana_count" -lt 100 ]; then
-        local gospider_args=(-S "$SESSION_DIR/hosts/hosts-live.txt" -d 3 -c 5 -t 30 --js --sitemap -a "$FAKE_UA" -s 5 -k 2)
+        local gospider_args=(-S "$SESSION_DIR/hosts/hosts-katana.txt" -d 3 -c 5 -t 30 --js --sitemap -a "$FAKE_UA" -s 5 -k 2)
         [ -n "$AUTH_COOKIE" ] && gospider_args+=(-C "$AUTH_COOKIE")
-        timeout --foreground 1200 gospider "${gospider_args[@]}" 2>"$SESSION_DIR/state/tmp/gospider.err" | grep -oaE "https?://[^\"'<>() ]+" | sed 's/[.,;)]$//' | sort -u > "$SESSION_DIR/urls/crawl-gospider.txt" || true
+        GOMEMLIMIT=2GiB timeout --foreground 1200 gospider "${gospider_args[@]}" 2>"$SESSION_DIR/state/tmp/gospider.err" | grep -oaE "https?://[^\"'<>() ]+" | sed 's/[.,;)]$//' | sort -u > "$SESSION_DIR/urls/crawl-gospider.txt" || true
         if [ ! -s "$SESSION_DIR/urls/crawl-gospider.txt" ]; then
             out "${C_Y}[warn] gospider produced 0 URLs -- stderr: $(tail -3 "$SESSION_DIR/state/tmp/gospider.err" 2>/dev/null | tr '\n' ' | ' | cut -c1-200)${C_R}"
             stage_note "gospider-empty"
@@ -1648,7 +1662,7 @@ st_crawl() {
         full_seed_count=$_seed_total
         seed_count=$(wc -l < "$SESSION_DIR/state/tmp/.archive-seeds.txt" | tr -d ' ')
         out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -u .archive-seeds.txt -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl [-H Cookie: ***] | awk '!seen[\$0]++' > urls/crawl-archive.txt || true"
-        timeout --foreground 1800 katana -u "$SESSION_DIR/state/tmp/.archive-seeds.txt" -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl "${katana_h[@]+${katana_h[@]}}" 2>/dev/null | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-archive.txt" || true
+        GOMEMLIMIT=4GiB timeout --foreground 1800 katana -u "$SESSION_DIR/state/tmp/.archive-seeds.txt" -d 3 -c 50 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl "${katana_h[@]+${katana_h[@]}}" 2>/dev/null | awk '!seen[$0]++' > "$SESSION_DIR/urls/crawl-archive.txt" || true
         cat "$SESSION_DIR/urls/crawl-archive.txt" 
         comm -23 <(grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" "$SESSION_DIR/urls/crawl-archive.txt" 2>/dev/null | sort -u) <(grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" "$SESSION_DIR/urls/crawl-katana.txt" 2>/dev/null | sort -u) | url_junk_filter > "$SESSION_DIR/urls/urls-revived.txt"
         local rev_count
