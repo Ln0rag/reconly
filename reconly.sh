@@ -71,7 +71,7 @@ run_stage() {
     t1=$(date +%s)
     stat=$(tr -d '\n' < "$SESSION_DIR/state/tmp/stage-notes-$name.txt" 2>/dev/null); stat="${stat%; }"
     [ -z "$stat" ] && stat="-"
-    printf '%s\t%s\t%s\t%s\n' "$name" "$rc" "-" "$stat" >> "$STAGE_LOG"
+    printf '%s\t%s\t%ss\t%s\n' "$name" "$rc" "$((t1 - t0))" "$stat" >> "$STAGE_LOG"
     return 0
 }
 stage_note() {
@@ -94,6 +94,7 @@ trap trap_ctrlc SIGINT
 trap trap_ctrlc SIGTERM
 
 VERIFY_TOKENS=0
+ORIG_ARGS=("$@")
 _args=()
 for _a in "$@"; do
     case "$_a" in
@@ -135,7 +136,7 @@ fi
 
 if [ -n "$AUTH_COOKIE" ] && [ -f "$AUTH_COOKIE" ]; then
     CK_FILE="$AUTH_COOKIE"
-    _ck_flatten() { awk '!/^#/ && NF>=7 {printf "%s=%s; ", $6, $7}' "$1" | sed 's/; $//'; }
+    _ck_flatten() { awk '{sub(/^#HttpOnly_/,"")} !/^#/ && NF>=7 {printf "%s=%s; ", $6, $7}' "$1" | sed 's/; $//'; }
     if head -1 "$CK_FILE" 2>/dev/null | grep -qi 'Netscape HTTP Cookie File'; then
         out "${C_Y}Netscape cookie jar detected, flattening${C_R}"
         AUTH_COOKIE=$(_ck_flatten "$CK_FILE")
@@ -143,7 +144,11 @@ if [ -n "$AUTH_COOKIE" ] && [ -f "$AUTH_COOKIE" ]; then
         out "${C_Y}Netscape-style cookie jar detected, flattening${C_R}"
         AUTH_COOKIE=$(_ck_flatten "$CK_FILE")
     else
-        AUTH_COOKIE=$(tr -d '\r\n' < "$CK_FILE")
+        if [ "$(wc -l < "$CK_FILE" 2>/dev/null | tr -d ' ')" -gt 1 ]; then
+            AUTH_COOKIE=$(awk 'NF && $0 !~ /^#/ { printf "%s%s", sep, $0; sep="; " } END { printf "\n" }' "$CK_FILE")
+        else
+            AUTH_COOKIE=$(tr -d '\r\n' < "$CK_FILE")
+        fi
     fi
     unset -f _ck_flatten 2>/dev/null || true
 fi
@@ -162,7 +167,7 @@ fi
 
 DOMAIN=$(echo "$RAW_DOMAIN" | sed -e 's|^[^/]*//||' -e 's|/.*$||' -e 's|^www\.||')
 DOMAIN_ESCAPED="${DOMAIN//./\.}"
-[[ "$DOMAIN" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]] || die "Invalid domain: $DOMAIN"
+[[ "$DOMAIN" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]] || die "Invalid domain: $DOMAIN"
 
 if [ ! -f "$RESOLVERS" ]; then
     mkdir -p "$(dirname "$RESOLVERS")"
@@ -215,9 +220,9 @@ maybe_fresh_restart() {
     clear 2>/dev/null || true
     local -a _ra=()
     [ "${VERIFY_TOKENS:-0}" = "1" ] && _ra+=("--verify-tokens")
-    out "${C_W}re-running: $0 $*${C_R}"
+    out "${C_W}re-running: $0 ${ORIG_ARGS[*]}${C_R}"
     rm -rf "$SESSION_DIR" 2>/dev/null || true
-    exec "$0" "${_ra[@]+"${_ra[@]}"}" "$@"
+    exec "$0" "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"
 }
 
 codeql_pack_use_downloads() {
@@ -424,7 +429,7 @@ seg_dl() {
         ) &
     done
     wait
-    cat "$_tmp"/p??? > "$_out" 2>/dev/null
+    cat "$_tmp"/p??? > "$_out" 2>/dev/null || true
     rm -rf "$_tmp"
     _got=$(wc -c < "$_out" 2>/dev/null | tr -d ' ')
     if [ "$_got" != "$_size" ]; then
@@ -488,7 +493,7 @@ PYEOF
         curl -sS --retry 3 --retry-delay 1 -m 1800 -r "$_s-$_e" -o "$_d/$(printf 'p%03d' "$_i")" "$_url" 2>/dev/null &
     done
     wait
-    cat "$_d"/p??? > "$_d/$_fname" 2>/dev/null
+    cat "$_d"/p??? > "$_d/$_fname" 2>/dev/null || true
     rm -f "$_d"/p???
     _got=$(wc -c < "$_d/$_fname" 2>/dev/null | tr -d ' ')
     if [ "$_got" != "$_size" ]; then rm -rf "$_d"; return 1; fi
@@ -592,16 +597,16 @@ check_for_updates() {
             src="${spec%%:*}"; ref="${spec#*:}"
             latest=""
             case "$src" in
-                go)   latest=$(curl -s -m 5 "https://proxy.golang.org/${ref}/@latest" 2>/dev/null | jq -r '.Version // empty' 2>/dev/null) ;;
-                pypi) latest=$(curl -s -m 5 "https://pypi.org/pypi/${ref}/json" 2>/dev/null | jq -r '.info.version // empty' 2>/dev/null) ;;
-                gh)   latest=$(curl -s -m 5 "https://api.github.com/repos/${ref}/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null) ;;
+                go)   latest=$(curl -s -m 5 "https://proxy.golang.org/${ref}/@latest" 2>/dev/null | jq -r '.Version // empty' 2>/dev/null) || true ;;
+                pypi) latest=$(curl -s -m 5 "https://pypi.org/pypi/${ref}/json" 2>/dev/null | jq -r '.info.version // empty' 2>/dev/null) || true ;;
+                gh)   latest=$(curl -s -m 5 "https://api.github.com/repos/${ref}/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null) || true ;;
             esac
             latest=$(printf '%s' "$latest" | sed -e 's/^v//' -e 's/^jq-//' | grep -E '^[0-9]' || true)
             [ -n "$latest" ] && printf '%s=%s\n' "$t" "$latest" >> "$tmp"
         ) &
     done
     wait
-    { printf '#%s\n' "$hb"; grep -v '^#' "$tmp" 2>/dev/null | sort -u; } > "$cache.$$" 2>/dev/null && mv -f "$cache.$$" "$cache"
+    { printf '#%s\n' "$hb"; grep -v '^#' "$tmp" 2>/dev/null | sort -u || true; } > "$cache.$$" 2>/dev/null && mv -f "$cache.$$" "$cache"
     rm -f "$tmp"
     return 0
 }
@@ -694,7 +699,7 @@ check_tools() {
             esac
             printf -v _vpad '%*s' $(( 10 - ${#_vdisp} )) ''
             local _up="" _latest
-            _latest=$(awk -F= -v k="$_t" '$1==k{print $2; exit}' "$HOME/github-tools/.tool-versions/.updatable" 2>/dev/null)
+            _latest=$(awk -F= -v k="$_t" '$1==k{print $2; exit}' "$HOME/github-tools/.tool-versions/.updatable" 2>/dev/null || true)
             if [ -n "$_latest" ] && [ "$_v" != "unknown" ]; then
                 case "$_v" in
                     dev-*) ;;
@@ -1010,7 +1015,12 @@ js_fetch() {
           grep -Fqx "$name|$url" "$SESSION_DIR/state/url-map.txt" 2>/dev/null || printf '%s|%s\n' "$name" "$url" >> "$SESSION_DIR/state/url-map.txt"
         ) 200>"$SESSION_DIR/state/.urlmap.lock"
         record_js_map "$name" "$url" "$kind" "-" 2>/dev/null || true
-        [ -n "$jh" ] && printf '%s|%s\n' "$jh" "$name" >> "$SESSION_DIR/state/js-content-hashes.txt"
+        if [ -n "$jh" ]; then
+            (
+                flock -w 10 200 || exit 0
+                printf '%s|%s\n' "$jh" "$name" >> "$SESSION_DIR/state/js-content-hashes.txt"
+            ) 200>"$SESSION_DIR/state/.urlmap.lock"
+        fi
         return 0
     else
         rm -f "$tmp" "$tmp.hdr"
@@ -1057,7 +1067,12 @@ page_fetch() {
     if [ -n "$ph" ] && [ -s "$SESSION_DIR/state/page-hashes.txt" ] && grep -Fqx "$ph" "$SESSION_DIR/state/page-hashes.txt" 2>/dev/null; then
         return 0
     fi
-    [ -n "$ph" ] && printf '%s\n' "$ph" >> "$SESSION_DIR/state/page-hashes.txt"
+    if [ -n "$ph" ]; then
+        (
+            flock -w 10 200 || exit 0
+            printf '%s\n' "$ph" >> "$SESSION_DIR/state/page-hashes.txt"
+        ) 200>"$SESSION_DIR/state/.urlmap.lock"
+    fi
 
     [ -s "$inline_file" ] && return 0
     inline_content=$(perl -0777 -ne 'while (/<script(?![^>]*\bsrc=)[^>]*>(.*?)<\/script>/gis) { print "$1\n" }' "$pfile" 2>/dev/null)
@@ -1066,7 +1081,10 @@ page_fetch() {
         if [ "$inline_bytes" -ge 20 ]; then
             ih=$(printf '%s' "$inline_content" | sha256sum 2>/dev/null | awk '{print $1}')
             if [ -n "$ih" ] && ! grep -Fqx "$ih" "$SESSION_DIR/state/page-hashes.txt" 2>/dev/null; then
-                printf '%s\n' "$ih" >> "$SESSION_DIR/state/page-hashes.txt"
+                (
+                    flock -w 10 200 || exit 0
+                    printf '%s\n' "$ih" >> "$SESSION_DIR/state/page-hashes.txt"
+                ) 200>"$SESSION_DIR/state/.urlmap.lock"
                 printf '%s' "$inline_content" > "$inline_file"
                 ( flock -w 10 200 || exit 1
                   grep -Fqx "page_${psafe}-${phash}.js|$page" "$SESSION_DIR/state/url-map.txt" 2>/dev/null || printf '%s|%s\n' "page_${psafe}-${phash}.js" "$page" >> "$SESSION_DIR/state/url-map.txt"
@@ -1099,7 +1117,6 @@ resolve_url() {
             url="${scheme_host}${rel}" ;;
         *)  scheme_host=$(printf '%s' "$base" | sed -E 's|^(https?://[^/]+).*|\1|')
             base_dir=$(printf '%s' "$base" | sed -E 's|^https?://[^/]+||; s|/[^/]*$||')
-            [ -n "$base_dir" ] || base_dir="/"
             url="${scheme_host}${base_dir}/${rel}" ;;
     esac
     while :; do
@@ -1191,7 +1208,7 @@ export -f _jitter build_c_hdr http_get http_code http_head http_post_json url_ju
 adapt_threads() {
     local _log="$SESSION_DIR/state/tmp/.js-progress.log"
     [ -s "$_log" ] || return 0
-    local _tot _429n
+    local _tot _429n _errn
     _tot=$(wc -l < "$_log" 2>/dev/null | tr -d ' '); _tot=${_tot:-0}
     _429n=$(awk -F'[:|]' '$1=="FAIL" && $2=="429"{c++} END{print c+0}' "$_log" 2>/dev/null); _429n=${_429n:-0}
     _errn=$(awk -F'[:|]' '$1=="FAIL" && ($2=="502" || $2=="503" || $2=="000"){c++} END{print c+0}' "$_log" 2>/dev/null); _errn=${_errn:-0}
@@ -1499,7 +1516,7 @@ st_auth_lite() {
     local c_hdr=(); build_c_hdr
     : > "$SESSION_DIR/state/tmp/.auth-evidence"
     {
-        grep '^https://' "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null | grep -v ':30' | head -3
+        grep '^https://' "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null | grep -v ':3000' | head -3
         head -3 "$SESSION_DIR/hosts/hosts-live.txt"
         grep ':3000' "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null | head -1
     } | awk '!seen[$0]++' | { while read -r _bu; do
@@ -1656,7 +1673,7 @@ st_classify_js() {
     if [ -s "$SESSION_DIR/state/tmp/.all-urls-raw.txt" ]; then
         awk '{
             sub(/^[[:space:]]+/,"")
-            if ($0 !~ /^https?:\/\//) next
+            if (tolower($0) !~ /^https?:\/\//) next
             scheme = tolower(substr($0,1,index($0,":")))
             rest = substr($0, index($0,"//")+2)
             if (index(rest,"/")==0) { host=rest; path="/" } else { host=substr(rest,1,index(rest,"/")-1); path=substr(rest,index(rest,"/")) }
@@ -1739,12 +1756,12 @@ st_js_pipeline() {
 
         if [ "$pending" -gt 0 ]; then
             out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ js_fetch${C_R} wave: cat .js-pending.txt | xargs -d '\n' -P $RECONLY_FETCH_THREADS -n 1 bash -c 'for u in '\$@'; do js_fetch '\$u' || true; done' _   ($pending files)"
-            awk -F/ '{n=$NF; sub(/\?.*/,"",n); k=$3"|"n; if(!seen[k]++){print}}' "$SESSION_DIR/state/tmp/.js-pending.txt" > "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" 2>/dev/null || cp "$SESSION_DIR/state/tmp/.js-pending.txt" "$SESSION_DIR/state/tmp/.js-pending-dedup.txt"
+            awk '{n=$0; sub(/\?.*/,"",n); if(!seen[n]++){print}}' "$SESSION_DIR/state/tmp/.js-pending.txt" > "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" 2>/dev/null || cp "$SESSION_DIR/state/tmp/.js-pending.txt" "$SESSION_DIR/state/tmp/.js-pending-dedup.txt"
             _pd=$(wc -l < "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" | tr -d ' ')
             [ "${_pd:-0}" -gt 0 ] && [ "$_pd" -lt "$pending" ] && { out "${C_W}basename dedup: $pending -> $_pd unique chunks${C_R}"; stage_note "jsdedup=$pending/$_pd"; }
             cp "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" "$SESSION_DIR/state/tmp/.js-pending.txt"
             rm -f "$SESSION_DIR/state/tmp/.js-pending-dedup.txt"
-            printf '%s\n' "$pending" > "$SESSION_DIR/state/tmp/.js-total"
+            printf '%s\n' "$(wc -l < "$SESSION_DIR/state/tmp/.js-pending.txt" | tr -d ' ')" > "$SESSION_DIR/state/tmp/.js-total"
             : > "$SESSION_DIR/state/tmp/.js-progress.log"
             cat "$SESSION_DIR/state/tmp/.js-pending.txt" | xargs -d '\n' -P "$RECONLY_FETCH_THREADS" -n 1 bash -c '
                 for u in "$@"; do
@@ -1981,12 +1998,12 @@ st_js_pipeline() {
 
         {
             if command -v rg &>/dev/null; then
-                rg --no-ignore --hidden -a -o -N -P -e 'https?://[^\s\x22\x27`<>()]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' -e '(?<![a-zA-Z0-9:])//[a-zA-Z0-9.-]+/[a-zA-Z0-9_/.-]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' -e 'import\(\s*[\x22\x27`][^\x22\x27`]+?\.(?:js|mjs)[\x22\x27`]\s*\)' "$SESSION_DIR/js/raw/" "$SESSION_DIR/js/deobf/" "$SESSION_DIR/js/formatted/" 2>/dev/null | awk '{sub(/^[^:]+:[0-9]+:/, ""); print}' | sed 's|^//|https://|' | grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)"
+                rg --no-ignore --hidden -a -o -n -P -e 'https?://[^\s\x22\x27`<>()]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' -e '(?<![a-zA-Z0-9:])//[a-zA-Z0-9.-]+/[a-zA-Z0-9_/.-]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' -e 'import\(\s*[\x22\x27`]\K[^\x22\x27`]+?\.(?:js|mjs)(?=[\x22\x27`]\s*\))' "$SESSION_DIR/js/raw/" "$SESSION_DIR/js/deobf/" "$SESSION_DIR/js/formatted/" 2>/dev/null | awk '{sub(/^[^:]+:[0-9]+:/, ""); print}' | sed 's|^//|https://|' | grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)"
             else
                 grep -rhoP 'https?://[^\s\x22\x27`<>()]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' "$SESSION_DIR/js/raw/" "$SESSION_DIR/js/deobf/" "$SESSION_DIR/js/formatted/" 2>/dev/null
                 grep -rhoP '(?<![a-zA-Z0-9:])//[a-zA-Z0-9.-]+/[a-zA-Z0-9_/.-]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' "$SESSION_DIR/js/raw/" "$SESSION_DIR/js/deobf/" "$SESSION_DIR/js/formatted/" 2>/dev/null | sed 's|^//|https://|'
             fi
-        } | sort -u > "$SESSION_DIR/state/tmp/.rec-new.txt"
+        } | grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" | sort -u > "$SESSION_DIR/state/tmp/.rec-new.txt"
         awk -F'|' '{print $2}' "$SESSION_DIR/state/url-map.txt" 2>/dev/null | sort -u > "$SESSION_DIR/state/tmp/.rec-fetched.txt"
         sort -u "$SESSION_DIR/state/tmp/.js-discovered.txt" > "$SESSION_DIR/state/tmp/.rec-known.txt"
         comm -23 "$SESSION_DIR/state/tmp/.rec-new.txt" "$SESSION_DIR/state/tmp/.rec-fetched.txt" | comm -23 - "$SESSION_DIR/state/tmp/.rec-known.txt" > "$SESSION_DIR/state/tmp/.rec-pending.txt"
@@ -2208,7 +2225,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
     hunt "Dev comments" '(?<=//|/\*)\s*(TODO|FIXME|HACK|BUG|XXX)[^\r\n]{0,120}' "dev-comments.txt" "" "INFO"
     hunt "WebSockets" 'wss?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "websockets.txt" '(localhost|example)' "INFO"
     hunt "Emails" '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "emails.txt" '(sentry\.io|example\.|w3\.org|@2x|@3x|aa@yy\.xyz|somethingdoug|shtylman|onur\.cakmak|^user@site)' "INFO"
-    hunt "IPs" '\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\b' "ip-addresses.txt" '(0\.0\.0\.0|127\.0\.0\.1|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[01]\.|255\.255|^([0-9]{1,2}\.){3}[0-9]{1,2}$)' "INFO"
+    hunt "IPs" '\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\b' "ip-addresses.txt" '(0\.0\.0\.0|127\.0\.0\.1|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[01]\.|255\.255)' "INFO"
     hunt "Debug flags" '(?i)\bdebug\b\s*[:=]\s*[\x22\x27]?(true|1)' "debug-flags.txt" '(example)' "INFO"
     hunt "External URLs" 'https?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "js-external-urls.txt" '(w3\.org|react\.dev|localhost|github\.com|github\.io|npmjs\.com|mozilla\.org|example\.com|stackoverflow\.com|googleapis\.com|gstatic\.com|cloudflare\.com|jsdelivr\.net|unpkg\.com|google-analytics\.com|googletagmanager\.com|facebook\.net|facebook\.com|twitter\.com|x\.com|wikimedia\.org|wikipedia\.org|flagcdn\.com|whatwg\.org|rfc-editor\.org|iana\.org|ecma-international\.org|unicode\.org|crisp\.chat|sentry-cdn|sentry\.io|\.png|\.jpe?g|\.gif|\.svg|\.webp|\.avif|\.ico|\.woff2?|\.ttf|\.css)(\?|$)' "INFO"
     hunt "Generic secrets" '(?i)(api[_-]?key|apikey|secret|token|password|auth[_-]?token)[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9\-_=]{16,}' "generic-secrets.txt" '(undefined|null|true|false|function|your[a-z0-9_-]*|changeme|placeholder|dummy|redacted|x{8,}|\*{8,}|123456789|example|[:=][[:space:]]*[\x22\x27]?[_$][a-zA-Z0-9_$]+[\x22\x27]?$)' "MEDIUM" "3.4"
@@ -2229,9 +2246,8 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
 
     local seenfile="$SESSION_DIR/state/tmp/.seen-values"
     : > "$seenfile"
-    : > "$SESSION_DIR/state/value-locations.tsv"
     local _dedup_order="cloud-tokens.txt private-keys.txt private-keys-2.txt db-creds.txt basic-auth.txt signing-secrets.txt config-file-secrets.txt comms-keys.txt auth-provider.txt payments-crypto.txt cloud-keys-2.txt ai-keys.txt ai-keys-2.txt payment-webhooks.txt devops-tokens.txt registry-ci.txt observability.txt auth-tokens.txt oauth-secrets.txt url-secrets.txt saas-tokens.txt saas-keys.txt tp-webhooks.txt hardcoded-bearer.txt presigned-urls.txt presigned-urls-2.txt azure-keys.txt service-accounts.txt smtp-creds.txt baas-pairs.txt generic-secrets.txt"
-    for f in $_dedup_order $(ls "$SESSION_DIR/findings/secrets/"*.txt 2>/dev/null | xargs -r -n1 basename | grep -vxF "$_dedup_order" | sort); do
+    for f in $_dedup_order $(ls "$SESSION_DIR/findings/secrets/"*.txt 2>/dev/null | xargs -r -n1 basename | grep -vxF -f <(printf '%s\n' $_dedup_order) | sort); do
         [ -s "$SESSION_DIR/findings/secrets/$f" ] || continue
         awk -F: -v seenfile="$seenfile" -v sidecar="$SESSION_DIR/state/value-locations.tsv" 'BEGIN{while((getline l<seenfile)>0)seen[l]=1}{key="";for(i=3;i<=NF;i++)key=key $i (i<NF?":":"");if(key in seen){if($1!="")printf "%s\t%s\n",key,$1 >> sidecar;next}print;seen[key]=1}' "$SESSION_DIR/findings/secrets/$f" > "$SESSION_DIR/state/tmp/.tmp.$f"
         awk -F: '{key="";for(i=3;i<=NF;i++)key=key $i (i<NF?":":"");print key}' "$SESSION_DIR/state/tmp/.tmp.$f" >> "$seenfile"
@@ -2274,7 +2290,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
             awk -v np="$SESSION_DIR/state/tmp/.name-path.tsv" -v um="$SESSION_DIR/state/url-map.txt" -F'\t' '
                 FILENAME==np { p[$1]=$2; next }
                 FILENAME==um { split($0,u,"|"); m[$1]=u[2]; next }
-                { fn=$0; sub(/:.*/,"",fn); outl=$0;
+                { fn=$0; sub(/:.*/,"",fn); gsub(/^[[:space:]]+|[[:space:]]+$/,"",fn); outl=$0;
                   if (fn in m) outl=outl "  |  URL: " m[fn];
                   if (fn in p) outl=outl "  |  FILE: js/" p[fn];
                   print outl }' "$np" "$um" "$_ef" > "$_ef.tmp" 2>/dev/null && mv "$_ef.tmp" "$_ef"
@@ -2646,7 +2662,7 @@ st_token_verify() {
     fi
     cat "$SESSION_DIR/findings/secrets/cloud-tokens.txt" "$SESSION_DIR/findings/secrets/ai-keys.txt" "$SESSION_DIR/findings/secrets/ai-keys-2.txt" "$SESSION_DIR/findings/secrets/comms-keys.txt" "$SESSION_DIR/findings/secrets/devops-tokens.txt" "$SESSION_DIR/findings/secrets/registry-ci.txt" 2>/dev/null > "$SESSION_DIR/state/tmp/.toks-all.txt"
     if [ -s "$SESSION_DIR/state/tmp/.toks-all.txt" ]; then
-        for tok in $(grep -oP 'sk-(?:proj-|ant-api03-)?[A-Za-z0-9_-]{20,}' "$SESSION_DIR/state/tmp/.toks-all.txt" | grep -vE 'sk-(live|test)_' | sort -u | head -3); do
+        for tok in $(grep -oP 'sk-(?!(?:ant-api03-|or-))[A-Za-z0-9_-]{20,}' "$SESSION_DIR/state/tmp/.toks-all.txt" | grep -vE 'sk-(live|test)_' | sort -u | head -3); do
             code=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -H "Authorization: Bearer $tok" https://api.openai.com/v1/models 2>/dev/null)
             [ "$code" = "200" ] && { echo "[CRITICAL] OpenAI key ACTIVE: ${tok:0:8}..." >> "$SESSION_DIR/findings/probes/confirmed.txt"; CONF=$((CONF+1)); }
         done
@@ -2795,7 +2811,7 @@ st_quick_probes() {
     grep -E '[?&](redirect|redirect_uri|redirect_url|return|return_url|returnto|return_to|next|continue|url|dest|destination|target|out|forward|go)=[^&]*' "$SESSION_DIR/urls/urls-inscope.txt" 2>/dev/null | head -40 \
     | xargs -d '\n' -P 15 -I {} bash -c '
         u="$1"
-        pu=$(printf "%s" "$u" | sed -E "s~([?&](redirect(_uri|_url)?|return(_url)?|returnto|return_to|next|continue|url|dest|destination|target|out|forward|go)=)[^&]*~\1https://evil.example~")
+        pu=$(printf "%s" "$u" | sed -E "s~([?&](redirect(_uri|_url)?|return(_url)?|returnto|return_to|next|continue|url|dest|destination|target|out|forward|go)=)[^&]*~\1https://evil.example~g")
         res=$(curl -s -o /dev/null -m 10 -A "$FAKE_UA" --max-redirs 0 -w "%{http_code} %{redirect_url}" "$pu" 2>/dev/null)
         case "$res" in 3*"evil.example"*) echo "$u -> $res" >> "'"$SESSION_DIR"'/findings/probes/open-redirect-confirmed.txt" ;; esac
     ' _ {}
@@ -3062,12 +3078,12 @@ st_report() {
     local timeline_html=""
     while IFS=$'\t' read -r name rc dur stat; do
         local icon color _en _es
-        if [ "$rc" = "0" ]; then icon="ok"; color="#3fb950"; else icon="FAIL"; color="#f85149"; fi
+        if [ "$rc" = "0" ]; then icon="ok"; color="#4caf7d"; else icon="FAIL"; color="#e5484d"; fi
         _en=$(printf '%s' "$name" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
         _es=$(printf '%s' "$stat" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
         timeline_html+="            <div class=\"tl-row\"><span class=\"tl-icon\" style=\"color:${color}\">${icon}</span><span class=\"tl-name\">${_en}</span><span class=\"tl-dur\">${dur}</span><span class=\"tl-stat\">${_es}</span></div>"$'\n'
     done < "$STAGE_LOG"
-    timeline_html+="            <div class=\"tl-row\"><span class=\"tl-icon\" style=\"color:#3fb950\">ok</span><span class=\"tl-name\">report</span><span class=\"tl-dur\">-</span><span class=\"tl-stat\">this file</span></div>"$'\n'
+    timeline_html+="            <div class=\"tl-row\"><span class=\"tl-icon\" style=\"color:#4caf7d\">ok</span><span class=\"tl-name\">report</span><span class=\"tl-dur\">-</span><span class=\"tl-stat\">this file</span></div>"$'\n'
 
     local queue_html=""
     for sf in cloud-tokens.txt private-keys.txt private-keys-2.txt db-creds.txt config-file-secrets.txt signing-secrets.txt auth-provider.txt comms-keys.txt payments-crypto.txt ai-keys.txt ai-keys-2.txt; do
@@ -3077,7 +3093,7 @@ st_report() {
         while IFS= read -r sline; do
             [ -z "$sline" ] && continue
             esc_s=$(printf '%s' "$sline" | cut -c1-220 | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
-            queue_html+="            <div class=\"q-row\"><span class=\"q-badge\" style=\"background:#f85149\">CRITICAL</span><span class=\"q-text\">${esc_s}</span></div>"$'\n'
+            queue_html+="            <div class=\"q-row\"><span class=\"q-badge\" style=\"background:#e5484d\">CRITICAL</span><span class=\"q-text\">${esc_s}</span></div>"$'\n'
         done < <(head -3 "$sfp")
     done
     for f in confirmed.txt takeover.txt hidden-endpoints.txt auth-bypass.txt open-redirect-confirmed.txt reflected-params.txt postmessage-verdicts.txt idor-candidates.txt auth-surface-map.txt; do
@@ -3085,9 +3101,9 @@ st_report() {
         [ -s "$fp" ] || continue
         local sev color
         case "$f" in
-            confirmed.txt) sev="CRITICAL"; color="#f85149" ;;
-            takeover.txt|hidden-endpoints.txt|auth-bypass.txt|idor-candidates.txt) sev="HIGH"; color="#db6d28" ;;
-            *) sev="MEDIUM"; color="#d29922" ;;
+            confirmed.txt) sev="CRITICAL"; color="#e5484d" ;;
+            takeover.txt|hidden-endpoints.txt|auth-bypass.txt|idor-candidates.txt) sev="HIGH"; color="#e08a3c" ;;
+            *) sev="MEDIUM"; color="#d9a441" ;;
         esac
         while IFS= read -r line; do
             [ -z "$line" ] && continue
@@ -3098,14 +3114,14 @@ st_report() {
                 _vln="${_vrest%%|*}"; _vverd="${_vrest##*|}"
                 esc_line=$(printf '%s:%s -- %s' "$_vfile" "$_vln" "$_vverd" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
                 case "$_vverd" in
-                    HIGH*) lsev="HIGH"; lcolor="#db6d28" ;;
+                    HIGH*) lsev="HIGH"; lcolor="#e08a3c" ;;
                     INFO*) lsev="INFO"; lcolor="#8b949e" ;;
-                    *) lsev="MEDIUM"; lcolor="#d29922" ;;
+                    *) lsev="MEDIUM"; lcolor="#d9a441" ;;
                 esac
             else
-                if printf '%s' "$line" | grep -q '^\[CRITICAL\]'; then lsev="CRITICAL"; lcolor="#f85149"
-                elif printf '%s' "$line" | grep -q '^\[HIGH\]'; then lsev="HIGH"; lcolor="#db6d28"
-                elif printf '%s' "$line" | grep -q '^\[MEDIUM\]'; then lsev="MEDIUM"; lcolor="#d29922"
+                if printf '%s' "$line" | grep -q '^\[CRITICAL\]'; then lsev="CRITICAL"; lcolor="#e5484d"
+                elif printf '%s' "$line" | grep -q '^\[HIGH\]'; then lsev="HIGH"; lcolor="#e08a3c"
+                elif printf '%s' "$line" | grep -q '^\[MEDIUM\]'; then lsev="MEDIUM"; lcolor="#d9a441"
                 elif printf '%s' "$line" | grep -q '^\[LOW\]'; then lsev="LOW"; lcolor="#8b949e"
                 fi
                 esc_line=$(printf '%s' "$line" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
@@ -3126,308 +3142,125 @@ st_report() {
     done < "$SESSION_DIR/findings/type-map.txt"
     sort -o "$SESSION_DIR/findings/by-type.txt" "$SESSION_DIR/findings/by-type.txt" 2>/dev/null || true
 
-    local c_crit c_high c_med c_urls c_js c_subs c_live f_crit f_high f_med f_total c_all c_mapsrc
-    c_crit=$(grep -c '^\[CRITICAL\]' "$SESSION_DIR/findings/probes/confirmed.txt" 2>/dev/null || true); c_crit=${c_crit:-0}
-    c_high=$(grep -c '^\[HIGH\]' "$SESSION_DIR/findings/probes/confirmed.txt" 2>/dev/null || true); c_high=${c_high:-0}
-    c_med=$(grep -c '^\[MEDIUM\]' "$SESSION_DIR/findings/probes/confirmed.txt" 2>/dev/null || true); c_med=${c_med:-0}
-    c_subs=$(wc -l < "$SESSION_DIR/subdomains/subdomains-final.txt" 2>/dev/null || echo 0)
-    c_live=$(wc -l < "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null || echo 0)
-    c_urls=$(wc -l < "$SESSION_DIR/urls/urls-inscope.txt" 2>/dev/null || echo 0)
-    c_js=$(find "$SESSION_DIR/js/raw" -name '*.js' 2>/dev/null | wc -l | tr -d ' ')
-    f_crit=$(grep -c '"severity":"CRITICAL"' "$SESSION_DIR/findings/findings.jsonl" 2>/dev/null || true); f_crit=${f_crit:-0}
-    f_high=$(grep -c '"severity":"HIGH"' "$SESSION_DIR/findings/findings.jsonl" 2>/dev/null || true); f_high=${f_high:-0}
-    f_med=$(grep -c '"severity":"MEDIUM"' "$SESSION_DIR/findings/findings.jsonl" 2>/dev/null || true); f_med=${f_med:-0}
-    f_total=$(wc -l < "$SESSION_DIR/findings/findings.jsonl" 2>/dev/null | tr -d ' '); f_total=${f_total:-0}
-    c_all=$(wc -l < "$SESSION_DIR/findings/probes/confirmed.txt" 2>/dev/null | tr -d ' '); c_all=${c_all:-0}
-    c_mapsrc=$(find "$SESSION_DIR/js/mapsrc" \( -name '*.js' -o -name '*.ts' \) 2>/dev/null | wc -l | tr -d ' ')
+    declare -A SEEN=() GRP_BTNS=() GRP_COUNT=()
+    local -a GRP_ORDER=(overview findings secrets probes analysis surface urls hosts subdomains state system)
+    local -A GRP_LABEL=(
+        [overview]="Overview"
+        [findings]="Confirmed findings"
+        [secrets]="Secrets and leaks"
+        [probes]="Live probes"
+        [analysis]="Static analysis"
+        [surface]="App surface"
+        [urls]="URLs"
+        [hosts]="Hosts"
+        [subdomains]="Subdomains"
+        [state]="State"
+        [system]="System"
+    )
+    local content_html="" tabs_def="" any_tab=""
+    local REPORT_CAP=3000
 
-    out "${C_W}Building findings explanations${C_R}"
-    {
-        echo "E X P L A N A T I O N S -- what each finding means and how to benefit"
-        echo "==============================================================="
-        echo "Cards top-right = pattern counts. ACTIVE (verified) = triage first."
-        echo ""
-    } > "$SESSION_DIR/findings/explanations.txt"
-    _exp_what() {
-        case "$1" in
-            cloud-tokens.txt) echo "Hardcoded cloud/SaaS API keys (AWS/GitHub/Slack/Stripe/Telegram...) shipped to the browser." ;;
-            private-keys.txt|private-keys-2.txt) echo "Private key material (PEM/OPENSSH/AGE/JWK) embedded in client-side code." ;;
-            db-creds.txt) echo "Database connection strings with username:password reachable from the JS." ;;
-            basic-auth.txt) echo "URLs with embedded user:password credentials." ;;
-            signing-secrets.txt) echo "JWT/session/HMAC/encryption secrets hardcoded -- forge sessions or sign arbitrary tokens." ;;
-            url-secrets.txt) echo "Secrets living in URL query parameters (logged by proxies, browser history, analytics)." ;;
-            oauth-secrets.txt|oauth-ids.txt) echo "OAuth client secrets/IDs -- may allow token issuance if the provider config is weak." ;;
-            auth-tokens.txt) echo "JWTs or Bearer tokens in the code. Decode the payload; check exp; try alg:none and weak-secret brute (hashcat -m 16500)." ;;
-            azure-keys.txt) echo "Azure Storage account keys -- full storage account control." ;;
-            service-accounts.txt) echo "Google service-account metadata/keys." ;;
-            payment-webhooks.txt|payments-crypto.txt) echo "Payment processor secret keys or webhook signing secrets -- refund/fraud impact." ;;
-            ai-keys.txt|ai-keys-2.txt) echo "LLM provider keys (OpenAI/Anthropic/Groq...) -- billable, often with org access." ;;
-            devops-tokens.txt|registry-ci.txt) echo "CI/CD or registry tokens (GitHub Actions, NPM, Docker...) -- pivot to supply chain." ;;
-            saas-tokens.txt|saas-keys.txt) echo "SaaS platform tokens (Notion/Segment/HubSpot...)." ;;
-            tp-webhooks.txt) echo "Third-party webhook URLs (Slack/Teams/Zapier) -- can be abused to post/spam if secret leaks." ;;
-            hardcoded-bearer.txt) echo "Hardcoded Bearer token string literals." ;;
-            presigned-urls.txt|signed-urls-2.txt) echo "Pre-signed cloud URLs (S3/GCS/Azure) -- grant time-limited access; check expiry." ;;
-            smtp-creds.txt) echo "Mail server credentials -- phishing infrastructure." ;;
-            baas-pairs.txt) echo "Algolia/Pusher app-id + api-key pairs." ;;
-            sdk-configs.txt) echo "Sentry/Cloudinary/Mapbox SDK configs -- often over-privileged." ;;
-            cognito-pools.txt) echo "AWS Cognito identity pool IDs -- check for unauthenticated IAM roles." ;;
-            s3-buckets.txt) echo "S3 bucket references -- test list/read permissions (aws s3 ls --no-sign-request)." ;;
-            baas-urls.txt) echo "Firebase/Supabase/Appwrite project URLs -- test .json read and rules exposure." ;;
-            internal-hosts.txt) echo "Internal/development hostnames revealed in client code." ;;
-            debug-endpoints.txt) echo "Debug/actuator endpoints referenced (/actuator/env, /debug/pprof...)." ;;
-            source-maps.txt) echo "Sourcemap references -- fetch them to recover original source (this pipeline already does)." ;;
-            dom-sinks.txt) echo "DOM XSS sinks (innerHTML/eval/document.write...) -- trace whether attacker input reaches them." ;;
-            framework-sinks.txt) echo "Framework-specific dangerous sinks (dangerouslySetInnerHTML, v-html, bypassSecurityTrust...)." ;;
-            postmessage-listeners.txt|postmessage-verdicts.txt) echo "postMessage handlers -- verdict shows if origin is validated; unvalidated = cross-origin DOM XSS." ;;
-            hidden-paths.txt) echo "Paths found in JS strings (/admin, /internal, /api...)." ;;
-            websockets.txt|ws-probes.txt) echo "WebSocket endpoints -- test for missing auth and cross-site WebSocket hijacking." ;;
-            graphql.txt|graphql-mutations.txt) echo "GraphQL operations/mutations discovered -- enumerate schema, test authz per field." ;;
-            graphql-persisted-queries.txt) echo "Persisted Query hashes -- replay them to extract hidden operations." ;;
-            dev-comments.txt) echo "TODO/FIXME/HACK comments -- reveal internals, credentials hints, unfinished features." ;;
-            debug-flags.txt) echo "Debug flags enabled in production code." ;;
-            emails.txt) echo "Email addresses -- reporting contacts, phishing targets." ;;
-            ip-addresses.txt) echo "Hardcoded IPs -- direct targets bypassing CDN/WAF." ;;
-            js-external-urls.txt) echo "External URLs called by the app -- third-party trust boundaries." ;;
-            generic-secrets.txt) echo "Generic key=high-entropy-value assignments -- manually review." ;;
-            cloud-keys-2.txt) echo "Second-tier cloud keys (Oracle/Alibaba/DigitalOcean/Hetzner/Vultr...)." ;;
-            comms-keys.txt) echo "Messaging API keys (Twilio/Mailgun/Plivo...) -- SMS/email abuse + cost." ;;
-            auth-provider.txt) echo "Auth-provider tokens (Okta/AWS SSO/Auth0-style)." ;;
-            observability.txt) echo "Monitoring keys (New Relic/Grafana/Datadog/Splunk)." ;;
-            captcha-keys.txt) echo "Captcha site/secret keys -- secret keys should never ship client-side." ;;
-            webpush.txt) echo "WebPush VAPID keys." ;;
-            config-file-secrets.txt) echo "Secrets inside config-file syntax (_authToken, client-key-data...)." ;;
-            jsluice-secrets.txt) echo "Secrets extracted by jsluice (URLs, keys, creds parsed from JS structure)." ;;
-            trufflehog.txt|gitleaks.txt|detect-secrets.txt|noseyparker.txt) echo "Third-party secret-scanner hits -- corroboration for the regex findings; triage together." ;;
-            trivy.txt) echo "Trivy secret/config findings." ;;
-            grype.txt|vulnerable-libs.txt|npm-audit.txt) echo "Known-vulnerable JS libraries with CVEs -- map CVE to exploit; check reachable code paths." ;;
-            codeql-findings.txt) echo "CodeQL rule histogram -- deep semantic analysis counts by vulnerability class." ;;
-            codeql-locations.txt) echo "CodeQL findings with file:line -- jump to the vulnerable code directly." ;;
-            semgrep-findings.txt) echo "Semgrep rule hits (taint + custom rules) with file:line and message." ;;
-            confirmed.txt) echo "VERIFIED ACTIVE findings (token validated against provider, exposed DB, alg:none accepted...). Highest priority." ;;
-            takeover.txt) echo "Subdomain takeover fingerprints -- dangling CNAMEs to unclaimed cloud resources. Claim and report." ;;
-            hidden-endpoints.txt) echo "Endpoints probed live: 200 anon = directly reachable; 401/403 with-cookie = session-gated surface." ;;
-            auth-bypass.txt) echo "Sensitive paths (admin/config/backup...) returning 200 WITHOUT auth." ;;
-            open-redirect-confirmed.txt|open-redirect-params.txt) echo "Confirmed open redirects -- chain into OAuth token theft or phishing." ;;
-            reflected-params.txt) echo "Parameters reflected in responses -- test context-aware XSS payloads." ;;
-            idor-candidates.txt) echo "URLs with numeric object IDs -- swap IDs across accounts to test authorization." ;;
-            auth-surface-map.txt) echo "Map of what the session unlocks -- replay these with a second user to find authz gaps." ;;
-            cors-misconfig.txt) echo "CORS misconfigurations -- arbitrary origin reflection enables cross-origin data theft with credentials." ;;
-            security-headers.txt) echo "Missing security headers (CSP/HSTS/X-Frame-Options...) -- weakens browser-side defenses." ;;
-            csp-deep.txt) echo "CSP weaknesses: unsafe-inline/eval, wildcards, data: URIs." ;;
-            cookie-flags.txt) echo "Cookies missing Secure/HttpOnly/SameSite -- enables theft via XSS or MITM." ;;
-            sensitive-files-live.txt) echo "Artifact URLs (.env/.sql/.bak...) returning 200 -- download and inspect." ;;
-            surface-matrix.txt) echo "HTTP status map of top in-scope URLs." ;;
-            method-anomalies.txt) echo "Endpoints accepting unusual HTTP methods (TRACE/PUT/DELETE) -- verb tampering." ;;
-            hosts-auth-required.txt) echo "Hosts gated with 401/403 -- compare anon vs cookie status." ;;
-            app-routes.txt) echo "Client-side routes discovered -- map the application's navigation surface." ;;
-            app-api-calls.txt) echo "API endpoints called by the frontend -- test each anon vs session vs second user." ;;
-            app-storage-keys.txt) echo "localStorage/sessionStorage keys -- sensitive data stored client-side is XSS-readable." ;;
-            app-environments.txt) echo "Backend URLs/environment configs hardcoded in the app." ;;
-            app-repo-structure.txt) echo "Original repo layout from sourcemaps -- reveals internal naming and structure." ;;
-            jsluice-endpoints.txt) echo "Endpoints extracted from JS by jsluice." ;;
-            service-worker-urls.txt) echo "URLs referenced by service workers -- cached app surface." ;;
-            wayback-secrets.txt) echo "Secrets found in HISTORICAL JS snapshots -- old builds often leak more." ;;
-            *) echo "Raw pattern findings -- review lines manually; severity label is above each block." ;;
-        esac
-    }
-    _exp_benefit() {
-        case "$1" in
-            confirmed.txt) echo "Validate each line read-only, then report immediately -- these are provable." ;;
-            cloud-tokens.txt|ai-keys.txt|ai-keys-2.txt|devops-tokens.txt|registry-ci.txt|comms-keys.txt|payment-webhooks.txt|payments-crypto.txt|auth-provider.txt|observability.txt) echo "Verify active (or use --verify-tokens), then report as exposed credentials; do not access data beyond identity/scope checks." ;;
-            takeover.txt) echo "Confirm the CNAME dangles (nxdomain at provider), claim the resource with your account, screenshot, report, release." ;;
-            auth-bypass.txt|hidden-endpoints.txt) echo "Replay with the session, then swap object IDs and verbs; a 200-anon admin path is a critical finding." ;;
-            open-redirect-confirmed.txt) echo "Chain: redirect_uri / oauth callback / password-reset poisoning." ;;
-            reflected-params.txt) echo "Escalate: context-aware XSS (svg onload, script-context breakout)." ;;
-            postmessage-verdicts.txt) echo "HIGH verdict = build a PoC iframe posting attacker data with '*'; check what the listener does with .data." ;;
-            idor-candidates.txt) echo "Two-account test: A fetches B's object ID. Data exposure = confirmed IDOR." ;;
-            cors-misconfig.txt) echo "PoC page: fetch(target, {credentials:'include'}) from attacker origin, exfiltrate response." ;;
-            grype.txt|vulnerable-libs.txt) echo "Match CVE -> exploit PoC; confirm the vulnerable function is reachable in the recovered sources." ;;
-            codeql-locations.txt|semgrep-findings.txt) echo "Open the file:line in js/mapsrc or js/deobf; trace the source -> sink path manually." ;;
-            *) echo "Cross-reference with the same file's report tab; severity-ranked export lives in all-findings.txt." ;;
-        esac
-    }
-    for _ef in "$SESSION_DIR/findings"/secrets/*.txt "$SESSION_DIR/findings"/probes/*.txt "$SESSION_DIR/findings"/analysis/*.txt; do
-        [ -s "$_ef" ] || continue
-        _eb=$(basename "$_ef")
-        _sev=$(awk -F'|' -v f="$_eb" '$1==f{print $3; exit}' "$SESSION_DIR/findings/type-map.txt" 2>/dev/null)
-        {
-            echo "### $_eb${_sev:+ [$_sev]}"
-            echo "WHAT:   $(_exp_what "$_eb")"
-            echo "BENEFIT: $(_exp_benefit "$_eb")"
-            echo "EVIDENCE (first 2):"
-            head -2 "$_ef" | sed 's/^/    /'
-            echo ""
-        } >> "$SESSION_DIR/findings/explanations.txt"
-    done
-
-    local tabs_def=""
-    local content_html=""
-    local first=1
     _add_tab() {
-        local file="$1" label="$2" color="$3"
+        local file="$1" label="$2" color="$3" group="${4:-state}" pin="${5:-}"
         [ -f "$file" ] || return 0
-        local id count data
-        id=$(printf '%s' "$label" | tr -c 'a-zA-Z0-9' '-')
+        SEEN[$file]=1
+        local count
         count=$(wc -l < "$file" 2>/dev/null | tr -d ' '); count=${count:-0}
+        [ "$count" -eq 0 ] && [ -z "$pin" ] && return 0
+        local id data id_src
+        id_src="${file#$SESSION_DIR/}"; id_src="${id_src%.*}"
+        id=$(printf '%s' "$id_src" | tr -c 'a-zA-Z0-9' '-' | sed -e 's/-\{2,\}/-/g' -e 's/^-\|-$//g')
         local active=""
-        [ "$first" -eq 1 ] && { active=" active"; first=0; }
-        local _disp="none"
-        [ -n "$active" ] && _disp="block"
-        tabs_def+="        <button class=\"tablinks${active}\" onclick=\"openTab(event,'${id}')\" style=\"color:${color}\">${label}<span class=\"badge\">${count}</span></button>"$'\n'
-        data=$(head -n 5000 "$file" 2>/dev/null | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
-          | sed -E 's|^([A-Za-z0-9_.-]+:[0-9]+):|<span class=\"f-loc\">\1:</span>|' \
-          | sed -E 's|(https?://[^"<> ]+)|<a href=\"\1\" target=\"_blank\">\1</a>|g' \
+        if [ -z "$any_tab" ]; then active=" active"; any_tab=1; fi
+        local _el
+        _el=$(printf '%s' "$label" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+        GRP_BTNS[$group]+="          <button class=\"tablinks${active}\" onclick=\"openTab(event,'${id}')\" style=\"--accent:${color}\">${_el}<span class=\"badge\">${count}</span></button>"$'\n'
+        GRP_COUNT[$group]=$(( ${GRP_COUNT[$group]:-0} + 1 ))
+        data=$(head -n "$REPORT_CAP" "$file" 2>/dev/null | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
           | awk '{
               line=$0; sev=""
               if (match(line,/^ *\[(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]/)) { sev=substr(line,RSTART,RLENGTH); gsub(/[][ ]/,"",sev) }
               else if (match(line,/^\|?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\|/)) { sev=substr(line,RSTART,RLENGTH); gsub(/\|/,"",sev) }
               cls=(sev==""?"":" sev-" sev)
-              printf "      <div class=\"f-row%s\"><span class=\"f-body\">%s</span></div>\n", cls, line
+              sep="  |  "; seplen=length(sep)
+              body=line; seg1=""; seg2=""
+              p=index(body,sep)
+              if (p>0) {
+                metazone=substr(body,p+seplen); body=substr(body,1,p-1)
+                mp=index(metazone,sep)
+                if (mp>0) { seg1=substr(metazone,1,mp-1); seg2=substr(metazone,mp+seplen) }
+                else { seg1=metazone }
+              }
+              meta=""
+              if (seg1!="") {
+                if (substr(seg1,1,6)=="FILE: ") { v=substr(seg1,7); gsub(/"/,"&quot;",v); meta=meta "<span class=\"f-file\" title=\"local copy\">" v "</span>" }
+                else if (substr(seg1,1,5)=="URL: ") { v=substr(seg1,6); gsub(/"/,"&quot;",v); meta=meta "<a class=\"f-src\" href=\"" v "\" target=\"_blank\" rel=\"noopener\">" v "</a>" }
+                else { body=body sep seg1 }
+              }
+              if (seg2!="") {
+                if (substr(seg2,1,6)=="FILE: ") { v=substr(seg2,7); gsub(/"/,"&quot;",v); meta=meta "<span class=\"f-file\" title=\"local copy\">" v "</span>" }
+                else if (substr(seg2,1,5)=="URL: ") { v=substr(seg2,6); gsub(/"/,"&quot;",v); meta=meta "<a class=\"f-src\" href=\"" v "\" target=\"_blank\" rel=\"noopener\">" v "</a>" }
+                else { body=body sep seg2 }
+              }
+              printf "      <div class=\"f-row%s\"><span class=\"f-body\">%s</span>%s</div>\n", cls, body, meta
             }')
-        local _total_lines _shown_lines
-        _total_lines=$(wc -l < "$file" 2>/dev/null | tr -d ' '); _total_lines=${_total_lines:-0}
-        _shown_lines=$_total_lines
-        [ "$_total_lines" -gt 5000 ] && _shown_lines=5000
+        local _disp="none"
+        [ -n "$active" ] && _disp="block"
+        local _shown=$count
+        [ "$_shown" -gt "$REPORT_CAP" ] && _shown=$REPORT_CAP
         content_html+="    <div id=\"${id}\" class=\"tabcontent\" style=\"display:${_disp};\">
-      <div class=\"tab-header\"><span style=\"color:${color};font-weight:bold\">${label}</span><span style=\"color:var(--fg2);font-size:11px;margin-left:8px\">showing ${_shown_lines} of ${_total_lines} lines</span><button class=\"copy-btn\" onclick=\"copyData(this)\">Copy</button></div>
+      <div class=\"tab-header\"><span class=\"tab-title\" style=\"--accent:${color}\">${_el}</span><span class=\"tab-meta\">${_shown} of ${count} lines</span><button class=\"copy-btn\" onclick=\"copyData(this)\">Copy</button></div>
       <div class=\"f-list\">
 ${data}
       </div>
     </div>"$'\n'
     }
-    _add_tab "$SESSION_DIR/findings/summary.txt" "summary" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/probes/confirmed.txt" "confirmed" "#f85149"
-    _add_tab "$SESSION_DIR/findings/next-steps.txt" "next-steps" "#3fb950"
-    _add_tab "$SESSION_DIR/findings/triage.txt" "triage" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/explanations.txt" "explanations" "#3fb950"
-    _add_tab "$SESSION_DIR/findings/all-findings.txt" "all-findings" "#f85149"
-    _add_tab "$SESSION_DIR/findings/by-type.txt" "by-type" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/analysis/context-all.txt" "context" "#f85149"
-    _add_tab "$SESSION_DIR/findings/probes/hidden-endpoints.txt" "hidden-endpoints" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/probes/auth-bypass.txt" "auth-bypass" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/probes/auth-surface-map.txt" "auth-surface" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/probes/sensitive-files-live.txt" "sensitive-files" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/probes/open-redirect-confirmed.txt" "open-redirect" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/reflected-params.txt" "reflected" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/postmessage-verdicts.txt" "postmessage" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/idor-candidates.txt" "idor" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/probes/cors-misconfig.txt" "cors" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/takeover.txt" "takeover" "#f85149"
-    _add_tab "$SESSION_DIR/findings/probes/security-headers.txt" "headers" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/csp-deep.txt" "csp-deep" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/cookie-flags.txt" "cookies" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/method-anomalies.txt" "method-anomalies" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/hosts-auth-required.txt" "hosts-gated" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/post-probe.txt" "post-probe" "#d29922"
-    _add_tab "$SESSION_DIR/findings/probes/surface-matrix.txt" "surface-matrix" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/probes/open-redirect-params.txt" "open-redirect-params" "#d29922"
-    _add_tab "$SESSION_DIR/findings/analysis/semgrep-findings.txt" "semgrep" "#f85149"
-    _add_tab "$SESSION_DIR/findings/analysis/codeql-findings.txt" "codeql" "#f85149"
-    _add_tab "$SESSION_DIR/findings/analysis/codeql-locations.txt" "codeql-locations" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/jsluice-secrets.txt" "jsluice-secrets" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/trufflehog.txt" "trufflehog" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/gitleaks.txt" "gitleaks" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/detect-secrets.txt" "detect-secrets" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/noseyparker.txt" "noseyparker" "#f85149"
-    _add_tab "$SESSION_DIR/findings/analysis/trivy.txt" "trivy" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/analysis/grype.txt" "grype" "#d29922"
-    _add_tab "$SESSION_DIR/findings/analysis/vulnerable-libs.txt" "vuln-libs" "#d29922"
-    _add_tab "$SESSION_DIR/findings/analysis/npm-audit.txt" "npm-audit" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/wayback-secrets.txt" "wayback-secrets" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/cloud-tokens.txt" "cloud-tokens" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/private-keys.txt" "private-keys" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/db-creds.txt" "db-creds" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/signing-secrets.txt" "signing-secrets" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/config-file-secrets.txt" "config-secrets" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/comms-keys.txt" "comms-keys" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/auth-provider.txt" "auth-provider" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/payments-crypto.txt" "payments-crypto" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/cloud-keys-2.txt" "cloud-keys-2" "#f85149"
-    _add_tab "$SESSION_DIR/findings/secrets/auth-tokens.txt" "auth-tokens" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/oauth-secrets.txt" "oauth-secrets" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/ai-keys.txt" "ai-keys" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/ai-keys-2.txt" "ai-keys-2" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/payment-webhooks.txt" "payment" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/devops-tokens.txt" "devops-tokens" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/registry-ci.txt" "registry-ci" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/observability.txt" "observability" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/hardcoded-bearer.txt" "bearer" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/presigned-urls.txt" "presigned" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/smtp-creds.txt" "smtp" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/generic-secrets.txt" "generic-secrets" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/saas-tokens.txt" "saas-tokens" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/saas-keys.txt" "saas-keys" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/azure-keys.txt" "azure" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/service-accounts.txt" "svc-accounts" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/dom-sinks.txt" "dom-sinks" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/framework-sinks.txt" "framework-sinks" "#db6d28"
-    _add_tab "$SESSION_DIR/findings/secrets/postmessage-listeners.txt" "pm-listeners" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/hidden-paths.txt" "hidden-paths" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/debug-endpoints.txt" "debug-endpoints" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/internal-hosts.txt" "internal-hosts" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/s3-buckets.txt" "s3" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/baas-urls.txt" "baas" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/cognito-pools.txt" "cognito" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/sdk-configs.txt" "sdk-configs" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/source-maps.txt" "source-maps" "#d29922"
-    _add_tab "$SESSION_DIR/findings/secrets/oauth-ids.txt" "oauth-ids" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/graphql.txt" "graphql" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/graphql-mutations.txt" "graphql-muts" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/graphql-persisted-queries.txt" "graphql-apq" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/probes/ws-probes.txt" "websockets" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/websockets.txt" "websockets-src" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/surface/app-routes.txt" "app-routes" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/app-api-calls.txt" "app-api-calls" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/app-storage-keys.txt" "storage-keys" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/app-environments.txt" "environments" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" "jsluice-endpoints" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/service-worker-urls.txt" "sw-urls" "#58a6ff"
-    _add_tab "$SESSION_DIR/findings/surface/app-repo-structure.txt" "repo-structure" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-inscope.txt" "urls-inscope" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-api.txt" "urls-api" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-auth-only.txt" "urls-auth-only" "#db6d28"
-    _add_tab "$SESSION_DIR/urls/urls-revived.txt" "urls-revived" "#db6d28"
-    _add_tab "$SESSION_DIR/urls/urls-js.txt" "urls-js" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-js-candidates.txt" "js-candidates" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-json.txt" "urls-json" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-artifacts.txt" "urls-artifacts" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/urls-all.txt" "urls-all" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/crawl-katana.txt" "crawl-katana" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/crawl-auth.txt" "crawl-auth" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/crawl-archive.txt" "crawl-archive" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/crawl-gospider.txt" "crawl-gospider" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/archive-waymore.txt" "archive-waymore" "#58a6ff"
-    _add_tab "$SESSION_DIR/urls/archive-gau.txt" "archive-gau" "#58a6ff"
-    _add_tab "$SESSION_DIR/state/blind-maps-found.txt" "blind-maps" "#58a6ff"
-    _add_tab "$SESSION_DIR/hosts/hosts-live.txt" "hosts-live" "#58a6ff"
-    _add_tab "$SESSION_DIR/subdomains/subdomains-final.txt" "subdomains" "#58a6ff"
-    _add_tab "$SESSION_DIR/subdomains/subdomains-new-since-last.txt" "subs-new" "#d29922"
-    _add_tab "$SESSION_DIR/subdomains/csp-domains.txt" "csp-domains" "#d29922"
-    _add_tab "$SESSION_DIR/hosts/httpx-raw.txt" "httpx-raw" "#58a6ff"
-    _add_tab "$SESSION_DIR/subdomains/raw/subfinder.txt" "subfinder-raw" "#58a6ff"
-    _add_tab "$SESSION_DIR/subdomains/raw/assetfinder.txt" "assetfinder-raw" "#58a6ff"
-    _add_tab "$SESSION_DIR/subdomains/raw/findomain.txt" "findomain-raw" "#58a6ff"
-    _add_tab "$SESSION_DIR/state/stage-log.tsv" "stage-log" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/debug-flags.txt" "debug-flags" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/dev-comments.txt" "dev-comments" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/emails.txt" "emails" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/ip-addresses.txt" "ips" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/secrets/js-external-urls.txt" "external-urls" "#8b949e"
-    _add_tab "$SESSION_DIR/findings/export.json" "export-json" "#58a6ff"
+
+    _add_tab "$SESSION_DIR/findings/summary.txt" "summary" "var(--accent)" "overview"
+    _add_tab "$SESSION_DIR/findings/next-steps.txt" "next-steps" "var(--ok)" "overview"
+    _add_tab "$SESSION_DIR/findings/triage.txt" "triage" "var(--accent)" "overview"
+    _add_tab "$SESSION_DIR/findings/explanations.txt" "explanations" "var(--ok)" "overview"
+    _add_tab "$SESSION_DIR/findings/all-findings.txt" "all-findings" "var(--crit)" "overview"
+    _add_tab "$SESSION_DIR/findings/by-type.txt" "by-type" "var(--accent)" "overview"
+
+    local _walk _wf _rel _grp _acc _lbl
+    _walk=$(find "$SESSION_DIR/findings" "$SESSION_DIR/urls" "$SESSION_DIR/hosts" "$SESSION_DIR/subdomains" "$SESSION_DIR/state" -type f \( -name '*.txt' -o -name '*.tsv' -o -name '*.json' -o -name '*.jsonl' -o -name '*.csv' \) 2>/dev/null | grep -v '/state/tmp/' | sort)
+    while IFS= read -r _wf; do
+        [ -n "${SEEN[$_wf]:-}" ] && continue
+        [ -s "$_wf" ] || continue
+        _rel="${_wf#$SESSION_DIR/}"
+        case "$_rel" in
+            findings/secrets/*)    _grp=secrets;  _acc="var(--crit)" ;;
+            findings/probes/*)     _grp=probes;   _acc="var(--high)" ;;
+            findings/analysis/*)   _grp=analysis; _acc="var(--warn)" ;;
+            findings/surface/*)    _grp=surface;  _acc="var(--accent)" ;;
+            urls/*)                _grp=urls;     _acc="var(--info2)" ;;
+            hosts/*)               _grp=hosts;    _acc="var(--ok)" ;;
+            subdomains/*)          _grp=subdomains; _acc="var(--info2)" ;;
+            state/*)               _grp=state;    _acc="var(--low)" ;;
+            *) continue ;;
+        esac
+        _lbl=$(basename "$_wf"); _lbl="${_lbl%.*}"
+        _add_tab "$_wf" "$_lbl" "$_acc" "$_grp"
+    done <<< "$_walk"
+
     local log_data=""
     [ -f "$SESSION_DIR/reconly.log" ] && log_data=$(tail -n 5000 "$SESSION_DIR/reconly.log" 2>/dev/null | sed -r 's/\x1b\[[0-9;]*m//g' | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
     local log_id="console-log"
-    tabs_def+="        <button class=\"tablinks\" onclick=\"openTab(event,'${log_id}')\" style=\"color:#8b949e\">console-log<span class=\"badge\">log</span></button>"$'\n'
+    GRP_BTNS[system]+="          <button class=\"tablinks\" onclick=\"openTab(event,'${log_id}')\" style=\"--accent:var(--low)\">console log<span class=\"badge\">log</span></button>"$'\n'
+    GRP_COUNT[system]=$(( ${GRP_COUNT[system]:-0} + 1 ))
     content_html+="    <div id=\"${log_id}\" class=\"tabcontent\" style=\"display:none;\">
-      <div class=\"tab-header\"><span style=\"color:#8b949e;font-weight:bold\">console-log</span><button class=\"copy-btn\" onclick=\"copyData(this)\">Copy</button></div>
+      <div class=\"tab-header\"><span class=\"tab-title\" style=\"--accent:var(--low)\">console log</span><button class=\"copy-btn\" onclick=\"copyData(this)\">Copy</button></div>
       <textarea class=\"data-box\" readonly spellcheck=\"false\">${log_data}</textarea>
     </div>"$'\n'
+    _add_tab "$SESSION_DIR/findings/export.json" "export-json" "var(--info2)" "system" "1"
 
-    local _tl_rows _q_rows _pre_tabs _pre_content
+    local _tl_rows _q_rows
     _tl_rows=$(printf '%s\n' "$timeline_html" | grep -c 'tl-row' || true)
     _q_rows=$(printf '%s\n' "$queue_html" | grep -c 'q-row' || true)
-    _pre_tabs="        <button class=\"tablinks\" onclick=\"openTab(event,'stage-timeline')\" style=\"color:#8b949e\">stage-timeline<span class=\"badge\">${_tl_rows}</span></button>"$'\n'
-    _pre_tabs+="        <button class=\"tablinks\" onclick=\"openTab(event,'attack-queue')\" style=\"color:#f85149\">attack-queue<span class=\"badge\">${_q_rows}</span></button>"$'\n'
+    GRP_BTNS[overview]="          <button class=\"tablinks\" onclick=\"openTab(event,'stage-timeline')\" style=\"--accent:var(--low)\">stage timeline<span class=\"badge\">${_tl_rows}</span></button>"$'\n'"          <button class=\"tablinks\" onclick=\"openTab(event,'attack-queue')\" style=\"--accent:var(--crit)\">attack queue<span class=\"badge\">${_q_rows}</span></button>"$'\n'"${GRP_BTNS[overview]:-}"
+    GRP_COUNT[overview]=$(( ${GRP_COUNT[overview]:-0} + 2 ))
+    local _pre_content
     _pre_content="    <div id=\"stage-timeline\" class=\"tabcontent\" style=\"display:none;\">"$'\n'
     _pre_content+="      <div class=\"timeline\">"$'\n'
     _pre_content+="$timeline_html"
@@ -3436,92 +3269,145 @@ ${data}
     _pre_content+="      <div class=\"queue\">"$'\n'
     _pre_content+="$queue_html"
     _pre_content+="      </div>"$'\n'"    </div>"$'\n'
-    tabs_def="$_pre_tabs$tabs_def"
     content_html="$_pre_content$content_html"
+
+    local nav_html="" grp
+    for grp in "${GRP_ORDER[@]}"; do
+        [ "${GRP_COUNT[$grp]:-0}" -gt 0 ] || continue
+        nav_html+="      <div class=\"nav-group\">"$'\n'
+        nav_html+="        <button class=\"nav-group-head\" onclick=\"toggleGroup(this)\"><span>${GRP_LABEL[$grp]}</span><span class=\"badge\">${GRP_COUNT[$grp]}</span></button>"$'\n'
+        nav_html+="        <div class=\"nav-group-body\">"$'\n'
+        nav_html+="${GRP_BTNS[$grp]:-}"
+        nav_html+="        </div>"$'\n'
+        nav_html+="      </div>"$'\n'
+    done
+    tabs_def="$nav_html"
 
     cat > "$html" << HTMLEOF
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>reconly — $esc_domain</title>
 <style>
-:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--fg:#c9d1d9;--fg2:#8b949e;--border:#30363d;--green:#3fb950;--red:#f85149;--orange:#db6d28;--yellow:#d29922;--blue:#58a6ff;--purple:#bc8cff}
+:root{
+  --bg:#1b1e25; --panel:#21252d; --raised:#282d36; --border:#333a46;
+  --fg:#e8e6e3; --fg2:#a9b1bb; --fg3:#6d7683;
+  --accent:#e5493a; --accent-hi:#f26a5c; --crit:#e5484d; --high:#e08a3c; --warn:#d9a441; --low:#8b949e; --ok:#4caf7d; --info:#e5493a; --info2:#5aa7c9;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg);color:var(--fg);min-height:100vh}
-.header{background:var(--bg2);border:none;padding:0;display:flex;justify-content:space-between;align-items:center}
-.header h1{font-size:20px;font-weight:700}
-.header .meta{color:var(--fg2);font-size:13px;margin-top:4px}
-.header .theme-btn{background:var(--bg3);border:1px solid var(--border);color:var(--fg);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
-.strip{display:flex;gap:16px;padding:16px 24px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap}
-.card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:120px}
-.card .num{font-size:24px;font-weight:700}
-.card .lbl{font-size:11px;color:var(--fg2);text-transform:uppercase;margin-top:2px}
-.card.crit .num{color:var(--red)}.card.high .num{color:var(--orange)}.card.med .num{color:var(--yellow)}.card.info .num{color:var(--blue)}
-.main{display:flex;min-height:calc(100vh - 200px)}
-.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto;padding:8px 0;flex-shrink:0}
-.sidebar button{display:block;width:100%;text-align:left;background:none;border:none;border-left:3px solid transparent;color:var(--fg2);padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sidebar button:hover{background:var(--bg3);color:var(--fg)}
-.sidebar button.active{background:var(--bg3);border-left-color:var(--green);color:#fff}
-.badge{background:var(--bg3);color:var(--fg2);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px;float:right}
-.content{flex:1;padding:20px;overflow-y:auto}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--fg);height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:14px}
+::selection{background:rgba(229,73,58,.35)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:var(--fg3)}
+
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);gap:16px;flex-wrap:wrap;flex-shrink:0}
+.header .brand{display:flex;align-items:baseline;gap:10px}
+.header .brand b{font-size:15px;letter-spacing:.3px}
+.header .brand .domain{font-family:var(--mono);font-size:14px;color:var(--fg2);background:var(--raised);border:1px solid var(--border);padding:2px 10px;border-radius:20px}
+.header .brand .domain::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:7px;vertical-align:1px}
+.header .meta{color:var(--fg3);font-size:11.5px;font-family:var(--mono)}
+.theme-btn{background:var(--raised);border:1px solid var(--border);color:var(--fg2);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--sans)}
+.theme-btn:hover{color:var(--fg);border-color:var(--accent)}
+
+.layout{display:flex;flex:1;min-height:0}
+
+.sidebar{width:264px;flex-shrink:0;border-right:1px solid var(--border);background:var(--panel);overflow-y:auto;overflow-x:hidden;padding:12px 10px}
+.search-box{width:100%;padding:8px 11px;background:var(--raised);border:1px solid var(--border);border-radius:7px;color:var(--fg);font-size:12px;font-family:var(--mono);outline:none;margin-bottom:10px}
+.search-box:focus{border-color:var(--accent)}
+.search-box::placeholder{color:var(--fg3)}
+.nav-group{margin-bottom:4px}
+.nav-group-head{width:100%;display:flex;justify-content:space-between;align-items:center;background:none;border:none;color:var(--fg2);padding:7px 8px;font-size:11px;font-family:var(--sans);font-weight:600;letter-spacing:.4px;text-transform:uppercase;cursor:pointer;border-radius:6px}
+.nav-group-head:hover{background:var(--raised);color:var(--fg)}
+.nav-group-head .badge{background:var(--raised);color:var(--fg3)}
+.nav-group.collapsed .nav-group-body{display:none}
+.nav-group.collapsed .nav-group-head{opacity:.6}
+.nav-group-body{padding:1px 0 4px 0}
+.sidebar button.tablinks{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;background:none;border:none;border-left:2px solid transparent;color:var(--fg2);padding:6px 8px 6px 10px;font-size:12px;font-family:var(--mono);cursor:pointer;border-radius:0 6px 6px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar button.tablinks:hover{background:var(--raised);color:var(--fg)}
+.sidebar button.tablinks.active{background:var(--raised);border-left-color:var(--accent);color:var(--fg)}
+.badge{background:var(--border);color:var(--fg2);padding:1px 7px;border-radius:10px;font-size:10px;font-family:var(--sans);margin-left:8px;flex-shrink:0}
+
+.content{flex:1;min-width:0;overflow-y:auto;padding:16px 20px}
 .tabcontent{display:none}
-.tabcontent:first-of-type{display:block}
-.tab-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-.copy-btn{background:var(--green);color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700}
-.copy-btn:hover{opacity:.9}
-.data-box{width:100%;height:calc(100vh - 230px);min-height:480px;background:#010409;color:var(--green);border:1px solid var(--border);padding:15px;font-family:'Courier New',Courier,monospace;font-size:13px;resize:vertical;outline:none;border-radius:6px}
-.f-list{max-height:calc(100vh - 230px);min-height:480px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:#010409;padding:6px 0}
-.f-row{display:flex;gap:10px;padding:5px 14px;border-left:3px solid transparent;font-size:13px;line-height:1.55;align-items:baseline}
-.f-row:nth-child(odd){background:rgba(255,255,255,.018)}
-.f-row:hover{background:var(--bg3)}
-.sev-CRITICAL{border-left-color:var(--red);background:rgba(248,81,73,.06)}
-.sev-HIGH{border-left-color:var(--orange);background:rgba(219,109,40,.06)}
-.sev-MEDIUM{border-left-color:var(--yellow);background:rgba(210,153,34,.05)}
-.sev-LOW,.sev-INFO{border-left-color:var(--fg2)}
-.f-body{flex:1;word-break:break-word;color:var(--fg)}
-.f-loc{color:var(--fg2);font-family:'Courier New',monospace;font-size:12px;margin-right:6px}
-.f-list a{color:var(--blue);text-decoration:none}
-.f-list a:hover{text-decoration:underline}
-.timeline{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px}
-.timeline h3{font-size:13px;color:var(--fg2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
-.tl-row{display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:center}
+.tab-header{display:flex;align-items:center;gap:12px;margin-bottom:12px;position:sticky;top:-16px;background:var(--bg);padding:10px 0;z-index:5}
+.tab-title{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent);padding-left:10px;border-left:3px solid var(--accent)}
+.tab-meta{color:var(--fg3);font-size:11px;font-family:var(--mono)}
+.copy-btn{margin-left:auto;background:var(--raised);border:1px solid var(--border);color:var(--fg2);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:11.5px;font-family:var(--sans)}
+.copy-btn:hover{color:var(--fg);border-color:var(--accent)}
+
+.f-list{display:flex;flex-direction:column;gap:4px}
+.f-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:7px 13px;border-left:3px solid transparent;background:var(--panel);border-top:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border);border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.65;font-family:var(--mono)}
+.f-row:hover{background:var(--raised)}
+.sev-CRITICAL{border-left-color:var(--crit);background:rgba(229,72,77,.07)}
+.sev-CRITICAL:hover{background:rgba(229,72,77,.12)}
+.sev-HIGH{border-left-color:var(--high);background:rgba(224,138,60,.07)}
+.sev-HIGH:hover{background:rgba(224,138,60,.12)}
+.sev-MEDIUM{border-left-color:var(--warn);background:rgba(217,164,65,.06)}
+.sev-MEDIUM:hover{background:rgba(217,164,65,.11)}
+.sev-LOW,.sev-INFO{border-left-color:var(--fg3)}
+.f-body{flex:1;min-width:280px;word-break:break-word;color:var(--fg)}
+.f-body a,.f-row a{color:var(--accent-hi);text-decoration:none;border-bottom:1px dotted var(--accent)}
+.f-body a:hover,.f-row a:hover{border-bottom-style:solid}
+.f-file{color:var(--fg3);font-size:11.5px;background:var(--raised);border:1px solid var(--border);border-radius:5px;padding:1px 8px;white-space:nowrap}
+.f-src{color:var(--accent-hi);font-size:11.5px;background:rgba(229,73,58,.08);border:1px solid rgba(229,73,58,.35);border-radius:5px;padding:1px 8px;text-decoration:none;white-space:nowrap;max-width:380px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom}
+.f-src:hover{background:rgba(229,73,58,.18)}
+.tk-sev{font-weight:700;padding:0 5px;border-radius:4px}
+.tk-crit{color:#ff6b6b;background:rgba(229,72,77,.14)}
+.tk-high{color:#f0a05a}
+.tk-medium{color:#e3c06a}
+.tk-low,.tk-info{color:var(--fg3)}
+.tk-file{color:var(--info2)}
+.tk-file i{color:var(--fg3);font-style:normal}
+
+.data-box{width:100%;height:calc(100vh - 170px);min-height:420px;background:var(--panel);color:var(--fg);border:1px solid var(--border);padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.6;resize:vertical;outline:none;border-radius:8px}
+
+.timeline,.queue{background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.tl-row{display:flex;gap:14px;padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;font-family:var(--mono);align-items:center}
 .tl-row:last-child{border-bottom:none}
-.tl-icon{width:16px;flex-shrink:0}
-.tl-name{width:120px;font-weight:700;flex-shrink:0}
-.tl-dur{width:60px;color:var(--fg2);flex-shrink:0}
+.tl-row:nth-child(odd){background:rgba(255,255,255,.015)}
+.tl-icon{width:36px;flex-shrink:0;font-weight:700;font-size:11px}
+.tl-name{width:170px;flex-shrink:0;color:var(--fg)}
+.tl-dur{width:56px;color:var(--fg3);flex-shrink:0}
 .tl-stat{flex:1;color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.queue{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px}
-.queue h3{font-size:13px;color:var(--fg2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
-.q-row{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:flex-start}
+.q-row{display:flex;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);font-size:12px;font-family:var(--mono);align-items:flex-start}
 .q-row:last-child{border-bottom:none}
-.q-badge{padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;margin-top:1px}
-.q-text{flex:1;word-break:break-all}
-.search-box{width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:13px;margin-bottom:12px;outline:none}
-.search-box:focus{border-color:var(--blue)}
-::-webkit-scrollbar{width:8px;height:8px}
-::-webkit-scrollbar-track{background:var(--bg)}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
-body.light{--bg:#ffffff;--bg2:#f6f8fa;--bg3:#eaeef2;--fg:#1f2328;--fg2:#656d76;--border:#d1d9e0;--green:#1a7f37;--red:#d1242f;--orange:#bf6300;--yellow:#9a6700;--blue:#0969da;--purple:#8250df}
-body.light .data-box{background:#f6f8fa;color:var(--fg)}
-body.light .card .num{color:var(--fg)}
+.q-row:nth-child(odd){background:rgba(255,255,255,.015)}
+.q-badge{padding:2px 9px;border-radius:5px;font-size:10px;font-weight:700;color:#101318;flex-shrink:0;margin-top:2px;font-family:var(--sans)}
+.q-text{flex:1;word-break:break-all;color:var(--fg)}
+
+body.light{
+  --bg:#f4f4f6; --panel:#ffffff; --raised:#eae9ec; --border:#d8d6da;
+  --fg:#20222a; --fg2:#5b6069; --fg3:#8d9199;
+  --accent:#d23c2e; --accent-hi:#b8321f; --crit:#cf3f46; --high:#c26a1d; --warn:#a97e14; --low:#7a7f87; --ok:#3d8b5f; --info:#d23c2e; --info2:#2f7ea3;
+}
+body.light .f-row{background:var(--panel)}
+body.light .tl-row:nth-child(odd),body.light .q-row:nth-child(odd){background:rgba(0,0,0,.02)}
+body.light .sev-CRITICAL{background:rgba(207,63,70,.06)}
+body.light .sev-HIGH{background:rgba(194,106,29,.06)}
+body.light .sev-MEDIUM{background:rgba(169,126,20,.05)}
+body.light .tk-crit{background:rgba(207,63,70,.12)}
 </style>
 </head>
 <body>
 <div class="header">
-  <div>
-    <h1>reconly — $esc_domain</h1>
-    <div class="meta">$TIMESTAMP | $esc_session</div>
+  <div class="brand"><b>reconly</b><span class="domain">$esc_domain</span></div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <span class="meta">$TIMESTAMP — $esc_session</span>
+    <button class="theme-btn" onclick="toggleTheme()">toggle theme</button>
   </div>
-  <button class="theme-btn" onclick="toggleTheme()">Toggle theme</button>
 </div>
-<noscript><style>.sidebar{display:none}.tabcontent{display:block !important;margin-bottom:24px}.main{display:block}.search-box{display:none}</style><div style="background:#d29922;color:#000;padding:10px 24px;font-weight:700">JavaScript is disabled in your browser (check Brave Shields / script blockers) -- showing all tabs stacked below. Use Ctrl+F to search, or enable JS for the full tabbed UI.</div></noscript>
+<noscript><style>.sidebar{display:none}.tabcontent{display:block !important;margin-bottom:24px}.layout{display:block}.content{overflow:visible}body{overflow:auto;height:auto}</style><div style="background:var(--warn);color:#101318;padding:10px 24px;font-weight:700">JavaScript is disabled — showing every section stacked below. Use Ctrl-F to search, or enable JS for the normal view.</div></noscript>
 
-<div style="padding:0 24px 16px">
-  <input type="text" class="search-box" id="searchBox" placeholder="Search all tabs (endpoint, filename, any string)..." onkeyup="filterTabs()">
-</div>
-<div class="main">
+<div class="layout">
   <div class="sidebar" id="sidebar">
+    <input type="text" class="search-box" id="searchBox" placeholder="search endpoints, files, strings..." onkeyup="filterTabs()">
 $tabs_def  </div>
   <div class="content">
 $content_html  </div>
@@ -3529,59 +3415,86 @@ $content_html  </div>
 <script>
 function openTab(evt,id){
   window._openTab=id;
-  document.querySelectorAll('.tabcontent').forEach(t=>t.style.display='none');
-  document.querySelectorAll('.tablinks').forEach(t=>t.classList.remove('active'));
-  document.getElementById(id).style.display='block';
+  document.querySelectorAll('.tabcontent').forEach(function(t){t.style.display='none'});
+  document.querySelectorAll('.tablinks').forEach(function(t){t.classList.remove('active')});
+  var target=document.getElementById(id);
+  target.style.display='block';
   evt.currentTarget.classList.add('active');
+  paint(target);
 }
+function toggleGroup(btn){btn.parentElement.classList.toggle('collapsed')}
 function copyData(btn){
   var container=btn.parentElement.nextElementSibling;
   var ta=(container.tagName==='TEXTAREA')?container:container.querySelector('.data-box');
   var text=ta?ta.value:container.innerText;
-  function done(){var o=btn.innerText;btn.innerText='Copied!';setTimeout(()=>btn.innerText=o,2000)}
-  if(navigator.clipboard&&location.protocol!=='file:'){navigator.clipboard.writeText(text).then(done).catch(()=>{fallback()})}
+  function done(){var o=btn.innerText;btn.innerText='copied';setTimeout(function(){btn.innerText=o},2000)}
+  if(navigator.clipboard&&location.protocol!=='file:'){navigator.clipboard.writeText(text).then(done).catch(function(){fallback()})}
   else{fallback()}
   function fallback(){var tmp=document.createElement('textarea');tmp.value=text;tmp.style.position='fixed';tmp.style.opacity='0';document.body.appendChild(tmp);tmp.focus();tmp.select();try{document.execCommand('copy')}catch(e){};document.body.removeChild(tmp);done()}
+}
+var HL_RE=/["']?(https?:\/\/[^\s"'<>\](),;]+)["']?|\b(CRITICAL|HIGH|MEDIUM|LOW|INFO)\b|(^|\s)((?:[\w.-]+\/)*[\w.-]+\.(?:js|mjs|ts|tsx|jsx|json|html|htm|map|ya?ml|xml|env|pem|key|p12|pfx|sql|sqlite3?|db|bak|old|log|conf|cfg|ini|txt|csv|md|lock|sh|py|go|tar|gz|zip))(?::([0-9]+))?/g;
+function hlText(t){
+  return t.replace(HL_RE,function(m,u,sev,pref,fn,ln){
+    if(u){return '<a href="'+u+'" target="_blank" rel="noopener">'+u+'</a>'}
+    if(sev){return '<b class="tk-sev tk-'+sev.toLowerCase()+'">'+sev+'</b>'}
+    if(fn){return pref+'<span class="tk-file">'+fn+(ln?'<i>:'+ln+'</i>':'')+'</span>'}
+    return m;
+  });
+}
+function paint(tab){
+  if(!tab||tab.dataset.painted==='1'){return}
+  var rows=tab.querySelectorAll('.f-body');
+  var max=rows.length>4000?4000:rows.length;
+  for(var i=0;i<max;i++){rows[i].innerHTML=hlText(rows[i].innerHTML)}
+  tab.dataset.painted='1';
 }
 function filterTabs(){
   var q=document.getElementById('searchBox').value.toLowerCase();
   document.querySelectorAll('.tabcontent').forEach(function(t){
     var rows=t.querySelectorAll('.f-row');
     if(rows.length){
-      if(q===''){rows.forEach(function(r){r.style.display=''});t.dataset.filtered='';t.style.display=(t.id===window._openTab)?'block':'none';return}
+      if(q===''){
+        rows.forEach(function(r){r.style.display=''});
+        t.style.display=(t.id===window._openTab)?'block':'none';
+        paint(t);return;
+      }
       var vis=0;
-      rows.forEach(function(r){var show=r.textContent.toLowerCase().includes(q);r.style.display=show?'':'none';if(show)vis++});
-      t.dataset.filtered=vis>0?'yes':'no';
+      rows.forEach(function(r){var show=r.textContent.toLowerCase().indexOf(q)!==-1;r.style.display=show?'':'none';if(show)vis++});
       t.style.display=vis>0?'block':'none';
+      if(vis>0){paint(t)}
       return;
     }
-    if(q===''){t.dataset.filtered='';t.style.display=(t.id===window._openTab)?'block':'none';var b0=t.querySelector('.data-box');if(b0&&b0.dataset.orig){b0.value=b0.dataset.orig}return}
+    if(q===''){t.style.display=(t.id===window._openTab)?'block':'none';var b0=t.querySelector('.data-box');if(b0&&b0.dataset.orig){b0.value=b0.dataset.orig}return}
     var txt=(t.innerText||'').toLowerCase();
-    t.dataset.filtered=txt.includes(q)?'yes':'no';
-    t.style.display=txt.includes(q)?'block':'none';
-    if(txt.includes(q)){
-      var box=t.querySelector('.data-box');
-      if(box){
-        var lines=box.value.split('\n');
-        var matched=lines.filter(l=>l.toLowerCase().includes(q));
-        if(matched.length>0&&matched.length<lines.length){box.value=matched.join('\n');box.dataset.orig=box.dataset.orig||lines.join('\n')}
-        else if(box.dataset.orig){box.value=box.dataset.orig}
-      }
-    }else{
-      var box2=t.querySelector('.data-box');
-      if(box2&&box2.dataset.orig){box2.value=box2.dataset.orig}
-    }
+    var hit=txt.indexOf(q)!==-1;
+    t.style.display=hit?'block':'none';
+    var box=t.querySelector('.data-box');
+    if(hit&&box){
+      var lines=box.value.split('\n');
+      var matched=lines.filter(function(l){return l.toLowerCase().indexOf(q)!==-1});
+      if(matched.length>0&&matched.length<lines.length){box.value=matched.join('\n');box.dataset.orig=box.dataset.orig||lines.join('\n')}
+      else if(box.dataset.orig){box.value=box.dataset.orig}
+    }else if(box&&box.dataset.orig){box.value=box.dataset.orig}
   });
   document.querySelectorAll('.tablinks').forEach(function(b){
     var id=b.getAttribute('onclick').match(/'([^']+)'/)[1];
     var t=document.getElementById(id);
-    if(!t)return;
-    if(q===''){b.style.display=''}
-    else{b.style.display=t.dataset.filtered==='yes'?'':'none'}
+    if(!t){b.style.display='';return}
+    b.style.display=(q===''||t.style.display==='block')?'':'none';
+  });
+  document.querySelectorAll('.nav-group').forEach(function(g){
+    if(q===''){g.style.display='';return}
+    var anyVisible=[].slice.call(g.querySelectorAll('.tablinks')).some(function(b){return b.style.display!=='none'});
+    g.style.display=anyVisible?'':'none';
   });
 }
-function toggleTheme(){document.body.classList.toggle('light')}
-var _vis=[].slice.call(document.querySelectorAll('.tabcontent')).filter(function(t){return t.style.display==='block'})[0];if(_vis){window._openTab=_vis.id}
+function toggleTheme(){
+  document.body.classList.toggle('light');
+  try{localStorage.setItem('reconly-theme',document.body.classList.contains('light')?'light':'dark')}catch(e){}
+}
+try{if(localStorage.getItem('reconly-theme')==='light'){document.body.classList.add('light')}}catch(e){}
+var _active=document.querySelector('.tablinks.active');
+if(_active){window._openTab=_active.getAttribute('onclick').match(/'([^']+)'/)[1];paint(document.getElementById(window._openTab));}
 </script>
 </body>
 </html>
@@ -3639,4 +3552,3 @@ main() {
 }
 
 main "$@"
-
