@@ -1382,11 +1382,11 @@ _httpx_wave() {
         case "$_rc" in
             2*) : ;;
             *) printf 'FAIL:%s|%s\n' "${_rc:-000}" "$_ru" >> "$SESSION_DIR/state/tmp/.js-progress.log"
-               case "$_rc" in 429|502|503|504|000) [ "$_kind" = "js" ] && printf '%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-failed.txt" ;; esac
+               case "$_rc" in 429|502|503|504|000) { [ "$_kind" = "js" ] || [ "$_kind" = "pages" ]; } && printf '%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-failed.txt" ;; esac
                continue ;;
         esac
         [ -f "$_rp" ] || _rp="$_jd/$(printf '%s' "$_ru" | md5sum | awk '{print $1}').txt"
-        if [ ! -f "$_rp" ]; then printf 'FAIL:000|%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-progress.log"; [ "$_kind" = "js" ] && printf '%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-failed.txt"; continue; fi
+        if [ ! -f "$_rp" ]; then printf 'FAIL:000|%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-progress.log"; { [ "$_kind" = "js" ] || [ "$_kind" = "pages" ]; } && printf '%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-failed.txt"; continue; fi
         _rsz=$(wc -c < "$_rp" 2>/dev/null | tr -d ' '); _rsz=${_rsz:-0}
         if [ "$_rsz" -le 0 ] || [ "$_rsz" -gt 52428800 ]; then
             if [ "$_kind" = "js" ] && [ "$_rsz" -gt 52428800 ]; then
@@ -1402,7 +1402,7 @@ _httpx_wave() {
             if [ "$_rsz" -le 0 ] || [ "$_rsz" -gt 52428800 ]; then
                 rm -f "$_rp"
                 printf 'FAIL:000|%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-progress.log"
-                [ "$_kind" = "js" ] && printf '%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-failed.txt"
+                { [ "$_kind" = "js" ] || [ "$_kind" = "pages" ]; } && printf '%s\n' "$_ru" >> "$SESSION_DIR/state/tmp/.js-failed.txt"
                 continue
             fi
         fi
@@ -1810,7 +1810,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
             out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .js-pending.txt -sr -srd tmp/httpx-js -json -rl $KATANA_RL   (primary JS fetch: $pending files, Go TLS fingerprint)"
             awk '{n=$0; sub(/\?.*/,"",n); sub(/.*\//,"",n); if (n ~ /[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/) { if(!seen[n]++) print } else print }' "$SESSION_DIR/state/tmp/.js-pending.txt" > "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" 2>/dev/null || cp "$SESSION_DIR/state/tmp/.js-pending.txt" "$SESSION_DIR/state/tmp/.js-pending-dedup.txt"
             _pd=$(wc -l < "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" | tr -d ' ')
-            [ "${_pd:-0}" -gt 0 ] && [ "$_pd" -lt "$pending" ] && { out "${C_W}basename dedup: $pending -> $_pd unique chunks${C_R}"; }
+            [ "${_pd:-0}" -gt 0 ] && out "${C_W}basename dedup: $pending -> $_pd unique chunks (already-unique if equal)${C_R}"
             cp "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" "$SESSION_DIR/state/tmp/.js-pending.txt"
             rm -f "$SESSION_DIR/state/tmp/.js-pending-dedup.txt"
             : > "$SESSION_DIR/state/tmp/.js-progress.log"
@@ -1924,6 +1924,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
                 : > "$SESSION_DIR/state/tmp/.js-progress.log"
                 _jd="$SESSION_DIR/state/tmp/httpx-pages"
                 : > "$SESSION_DIR/state/tmp/.pg-httpx-ok.txt"
+                local _fail_streak=0
                 split -l 250 "$SESSION_DIR/state/tmp/.pages-temp.txt" "$SESSION_DIR/state/tmp/.pgchunk-"
                 for _pc in "$SESSION_DIR/state/tmp/.pgchunk-"*; do
                     [ -e "$_pc" ] || continue
@@ -1931,6 +1932,19 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
                     _httpx_wave "$_pc" pages
                     adapt_threads
                     rm -f "$_pc"
+                    _wt=$(wc -l < "$SESSION_DIR/state/tmp/.js-progress.log" 2>/dev/null | tr -d ' '); _wt=${_wt:-0}
+                    _wf=$(grep -c '^FAIL:' "$SESSION_DIR/state/tmp/.js-progress.log" 2>/dev/null | tr -d ' '); _wf=${_wf:-0}
+                    if [ "$_wt" -gt 0 ] && [ "$((_wf * 100))" -ge "$((_wt * 95))" ]; then
+                        _fail_streak=$((_fail_streak + 1))
+                    else
+                        _fail_streak=0
+                    fi
+                    if [ "$_fail_streak" -ge 3 ]; then
+                        out "${C_Y}[stealth] wave abort: 3 consecutive page chunks >=95% failure -- server down for us, skipping rest${C_R}"
+                        cat "$SESSION_DIR/state/tmp/.pgchunk-"* 2>/dev/null >> "$SESSION_DIR/state/tmp/.js-failed.txt"
+                        rm -f "$SESSION_DIR/state/tmp/.pgchunk-"*
+                        break
+                    fi
                 done
                 comm -23 <(sort -u "$SESSION_DIR/state/tmp/.pages-temp.txt") <(sort -u "$SESSION_DIR/state/tmp/httpx-pages.ok") > "$SESSION_DIR/state/tmp/.pg-curl-retry.txt"
                 if [ -s "$SESSION_DIR/state/tmp/.pg-curl-retry.txt" ]; then
@@ -2060,13 +2074,12 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
             done
         fi
 
-        _discf=$(find "$SESSION_DIR/js/raw" "$SESSION_DIR/js/deobf" "$SESSION_DIR/js/formatted" -type f -newer "$SESSION_DIR/state/tmp/.disc-marker" -print0 2>/dev/null)
         {
             if command -v rg &>/dev/null; then
-                printf '%s' "$_discf" | xargs -0 -r rg --no-ignore --hidden -a -o -n -P -e 'https?://[^\s\x22\x27`<>()]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' -e '(?<![a-zA-Z0-9:])//[a-zA-Z0-9.-]+/[a-zA-Z0-9_/.-]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' -e 'import\(\s*[\x22\x27`]\K[^\x22\x27`]+?\.(?:js|mjs)(?=[\x22\x27`]\s*\))' 2>/dev/null | awk '{sub(/^[^:]+:[0-9]+:/, ""); print}' | sed 's|^//|https://|' | grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)"
+                find "$SESSION_DIR/js/raw" "$SESSION_DIR/js/deobf" "$SESSION_DIR/js/formatted" -type f -newer "$SESSION_DIR/state/tmp/.disc-marker" -print0 2>/dev/null | xargs -0 -r rg --no-ignore --hidden -a -o -n -P -e 'https?://[^\s\x22\x27`<>()]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' -e '(?<![a-zA-Z0-9:])//[a-zA-Z0-9.-]+/[a-zA-Z0-9_/.-]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' -e 'import\(\s*[\x22\x27`]\K[^\x22\x27`]+?\.(?:js|mjs)(?=[\x22\x27`]\s*\))' 2>/dev/null | awk '{sub(/^[^:]+:[0-9]+:/, ""); print}' | sed 's|^//|https://|' | grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)"
             else
-                printf '%s' "$_discf" | xargs -0 -r grep -a -h -o -P 'https?://[^\s\x22\x27`<>()]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' 2>/dev/null
-                printf '%s' "$_discf" | xargs -0 -r grep -a -h -o -P '(?<![a-zA-Z0-9:])//[a-zA-Z0-9.-]+/[a-zA-Z0-9_/.-]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' 2>/dev/null | sed 's|^//|https://|'
+                find "$SESSION_DIR/js/raw" "$SESSION_DIR/js/deobf" "$SESSION_DIR/js/formatted" -type f -newer "$SESSION_DIR/state/tmp/.disc-marker" -print0 2>/dev/null | xargs -0 -r grep -a -h -o -P 'https?://[^\s\x22\x27`<>()]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' 2>/dev/null
+                find "$SESSION_DIR/js/raw" "$SESSION_DIR/js/deobf" "$SESSION_DIR/js/formatted" -type f -newer "$SESSION_DIR/state/tmp/.disc-marker" -print0 2>/dev/null | xargs -0 -r grep -a -h -o -P '(?<![a-zA-Z0-9:])//[a-zA-Z0-9.-]+/[a-zA-Z0-9_/.-]+\.(js|mjs)(\?[^\s\x22\x27`<>()]*)?' 2>/dev/null | sed 's|^//|https://|'
             fi
         } | grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" | sort -u > "$SESSION_DIR/state/tmp/.rec-new.txt"
         _wsc=$( _webpack_scan 2>/dev/null || true )
@@ -2097,7 +2110,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
 
 }
 st_analysis_local() {
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ jsluice${C_R} secrets + urls: find js/{raw,deobf,mapsrc,json} -type f -size -20M \( -name '*.js' -o -name '*.json' \) | xargs -0 -P $PRETTIER_JOBS -n 1 bash -c 'jsluice secrets + jsluice urls' _"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ jsluice${C_R} secrets + urls: find js/{raw,deobf,mapsrc,json} -type f -size -55M \( -name '*.js' -o -name '*.json' \) | xargs -0 -P $PRETTIER_JOBS -n 1 bash -c 'jsluice secrets + jsluice urls' _"
     mkdir -p "$SESSION_DIR/state/tmp/jsluice-out"
     : > "$SESSION_DIR/state/tmp/jsluice-failed.txt"
     : > "$SESSION_DIR/findings/secrets/jsluice-secrets.txt"
@@ -2178,7 +2191,8 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ syft${C_R} dir:<manif
         out "${C_Y}[warn] syft/grype not installed -- skipping${C_R}"
     fi
 
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '<55+ secret/sink patterns>' over js/{formatted,mapsrc,deobf,json,artifacts} + entropy filter + cross-file value dedup"
+_nhc=0; [ -s "$HOME/github-tools/hunt-custom.txt" ] && _nhc=$(grep -vc '^#\|^$' "$HOME/github-tools/hunt-custom.txt" 2>/dev/null | tr -d ' '); _nhc=${_nhc:-0}
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '<41 core + $_nhc custom patterns>' over js/{formatted,mapsrc,deobf,json,artifacts} + entropy filter + cross-file value dedup"
     : > "$SESSION_DIR/findings/type-map.txt"
     mkdir -p "$SESSION_DIR/findings/secrets"
 
@@ -2243,7 +2257,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
     hunt "IPs" '\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\b' "ip-addresses.txt" '(0\.0\.0\.0|127\.0\.0\.1|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[01]\.|255\.255)' "INFO"
     hunt "Debug flags" '(?i)\bdebug\b\s*[:=]\s*[\x22\x27]?(true|1)' "debug-flags.txt" '(example)' "INFO"
     hunt "External URLs" 'https?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "js-external-urls.txt" '(w3\.org|react\.dev|localhost|github\.com|github\.io|npmjs\.com|mozilla\.org|example\.com|stackoverflow\.com|googleapis\.com|gstatic\.com|cloudflare\.com|jsdelivr\.net|unpkg\.com|google-analytics\.com|googletagmanager\.com|facebook\.net|facebook\.com|twitter\.com|x\.com|wikimedia\.org|wikipedia\.org|flagcdn\.com|whatwg\.org|rfc-editor\.org|iana\.org|ecma-international\.org|unicode\.org|crisp\.chat|sentry-cdn|sentry\.io|nextjs\.org|redux(-toolkit)?\.js\.org|ckeditor\.com|formatjs\.io|json-schema\.org|socket\.io|caniuse\.com|bugs\.(chromium|webkit)\.org|csrc\.nist\.gov|opensource\.org|aomedia\.org|w3ctech\.com|evilmartians\.com|npms\.io|lodash\.com|underscorejs\.org|date-fns|react-dnd\.github\.io|base-ui\.com|litix\.io|fengyuanchen\.github\.io|docs\.strapi\.io|strapi\.io|developer\.chrome\.com|developers\.google\.com|firebase\.google\.com|web\.dev|schema\.org|play\.google\.com|apps\.apple\.com|youtube\.com|facebook\.com|instagram\.com|tiktok\.com|linkedin\.com|wa\.me|spotify\.com|vimeo\.com|dailymotion\.com|\.png|\.jpe?g|\.gif|\.svg|\.webp|\.avif|\.ico|\.woff2?|\.ttf|\.css)(\?|$)' "INFO"
-    hunt "Generic secrets" '(?i)(api[_-]?key|apikey|secret|token|password|auth[_-]?token)[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9\-_=]{16,}' "generic-secrets.txt" '(undefined|null|true|false|function|your[a-z0-9_-]*|changeme|placeholder|dummy|redacted|x{8,}|\*{8,}|123456789|example|[:=][[:space:]]*[\x22\x27]?[_$][a-zA-Z0-9_$]+[\x22\x27]?$)' "MEDIUM" "3.4"
+    hunt "Generic secrets" '(?i)(api[_-]?key|apikey|secret|token|password|auth[_-]?token)[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9\-_=]{16,}' "generic-secrets.txt" '(undefined|null|true|false|function|your[a-z0-9_-]*|changeme|placeholder|dummy|redacted|x{8,}|\*{8,}|123456789|example|completed|inprogress|emulatormock|[:=][[:space:]]*[\x22\x27]?[_$][a-zA-Z0-9_$]+[\x22\x27]?$)' "MEDIUM" "3.4"
     hunt "Cloud keys II" '\b(oci1\.[a-z0-9]{15,}|LTAI[A-Za-z0-9]{12,}|cf_[a-zA-Z0-9_]{30,}|dckr_pat_[A-Za-z0-9_-]{20,}|fo1_[A-Za-z0-9_]{30,}|scw_[a-f0-9]{30,}|hcloud_[A-Za-z0-9]{30,}|do_pat_[A-Za-z0-9_-]{40,}|vultr_[a-f0-9]{30,})\b' "cloud-keys-2.txt" '(example|test)' "CRITICAL" "3.0"
     hunt "Comms API keys" '\b(key-[0-9a-f]{32}|AC[0-9a-f]{32}:[0-9a-f]{32}|pm_[a-zA-Z0-9]{20,}|mg\.[A-Za-z0-9]{20,}|mc\.[a-f0-9]{32}|plivo_[a-zA-Z0-9]{30,}|vonage[-_][a-z0-9]{20,}|ably-[a-zA-Z0-9_-]{30,}|pub-[a-f0-9]{32}|sub-[a-f0-9]{32}|bird_[a-zA-Z0-9]{20,})\b' "comms-keys.txt" '(test|example)' "CRITICAL" "3.0"
     hunt "Auth provider tokens" '\b(00[A-Za-z0-9_-]{40}|ssws [A-Za-z0-9=_-]{20,}|eyJhbGciOiJSUzI1NiIsImtpZCI6[A-Za-z0-9_-]{10,})\b' "auth-provider.txt" "(test)" "CRITICAL" "3.2"
@@ -2341,6 +2355,11 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
             printf '%s\t%s\t%s\t%s\t%s\n' "$_sev" "$_dir" "$_tf" "$_hn" "$_msg" >> "$SESSION_DIR/findings/INDEX.tsv"
         done
     done < "$SESSION_DIR/findings/type-map.txt"
+    for _sf in trufflehog.txt gitleaks.txt noseyparker.txt jsluice-secrets.txt wayback-secrets.txt UNIQUE-SECRETS.tsv; do
+        [ -s "$SESSION_DIR/findings/secrets/$_sf" ] || continue
+        _sn=$(wc -l < "$SESSION_DIR/findings/secrets/$_sf" | tr -d ' ')
+        printf 'INFO\tsecrets\t%s\t%s\t%s\n' "$_sf" "$_sn" "scanner/aggregate output" >> "$SESSION_DIR/findings/INDEX.tsv"
+    done
     [ -s "$SESSION_DIR/findings/INDEX.tsv" ] && sort -k1,1 -k4,4rn "$SESSION_DIR/findings/INDEX.tsv" -o "$SESSION_DIR/findings/INDEX.tsv"
 
 
@@ -2511,10 +2530,10 @@ YAMLEOF
         local _sg_rc=0
         nice -n 15 timeout --foreground 1800 semgrep scan --jobs "$PRETTIER_JOBS" --config="$SESSION_DIR/state/reconly-custom.yml" --config=p/javascript --config=p/secrets --config=p/react --config=p/vue --config=p/angular --config=p/jwt --json --metrics=off \
             "$SESSION_DIR/js/mapsrc" "$SESSION_DIR/js/formatted" "$SESSION_DIR/js/deobf" 2>"$SESSION_DIR/state/tmp/semgrep.err" \
-          | jq -r '.results[] | "\(.path):\(.start.line):\(.check_id): \(.extra.message)"' > "$SESSION_DIR/findings/analysis/semgrep-findings.txt" 2>/dev/null || _sg_rc=1
-        if [ "$_sg_rc" -ne 0 ]; then
-            warn_rc "semgrep (registry)" "$_sg_rc"
-            out "${C_Y}[warn] semgrep registry unreachable -- falling back to local rules only${C_R}"
+          | jq -r '.results[] | "\(.path):\(.start.line):\(.check_id): \(.extra.message)"' > "$SESSION_DIR/findings/analysis/semgrep-findings.txt" 2>/dev/null || _sg_rc=$?
+        if [ "${_sg_rc:-0}" -ge 2 ] || [ ! -s "$SESSION_DIR/findings/analysis/semgrep-findings.txt" ]; then
+            warn_rc "semgrep (registry)" "${_sg_rc:-1}"
+            out "${C_Y}[warn] semgrep registry/config failed (rc=${_sg_rc:-1}, output empty) -- falling back to local rules only${C_R}"
             local _sgl_rc=0
             nice -n 15 timeout --foreground 900 semgrep scan --jobs "$PRETTIER_JOBS" --config="$SESSION_DIR/state/reconly-custom.yml" --json --metrics=off \
                 "$SESSION_DIR/js/mapsrc" "$SESSION_DIR/js/formatted" "$SESSION_DIR/js/deobf" 2>>"$SESSION_DIR/state/tmp/semgrep.err" \
@@ -2921,6 +2940,18 @@ main() {
     run_stage "Quick-probes" st_quick_probes || true
 
     cleanup
+
+    out ""
+    out "${C_W}findings/${C_R}"
+    (
+        cd "$SESSION_DIR" 2>/dev/null || exit 0
+        find findings -type d 2>/dev/null | LC_ALL=C sort | while IFS= read -r _td; do
+            [ "$_td" = "findings" ] && continue
+            _tf=$(find "$_td" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+            _ti=$(awk -v p="$_td" 'BEGIN{n=split(p,a,"/"); for(i=3;i<=n;i++) printf "  "; printf "|_ "}')
+            out "${_ti}${C_W}${_td##*/}/${C_R} ${C_K}(${_tf} files)${C_R}"
+        done
+    ) || true
 
     out ""
     out "${C_W}Session: $SESSION_DIR${C_R}"
