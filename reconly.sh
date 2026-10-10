@@ -870,6 +870,19 @@ http_head() {
     _jitter
     curl -s -o /dev/null -D - -m 15 -A "$FAKE_UA" "$url" 2>/dev/null
 }
+_mpgrep() {
+    local pf="$1" input="${2:-}"
+    if command -v rg &>/dev/null; then
+        if [ -n "$input" ]; then rg -a -o -P -f "$pf" "$input" 2>/dev/null; else rg -a -o -P -f "$pf" 2>/dev/null; fi
+    else
+        local i
+        for i in $(seq 1 40 $(wc -l < "$pf" | tr -d ' ')); do
+            local j=$((i + 39)) rx
+            rx=$(sed -n "${i},${j}p" "$pf" | sed 's/.*/(?:&)/' | paste -sd'|' -)
+            if [ -n "$input" ]; then grep -oP -- "$rx" "$input" 2>/dev/null; else grep -oP -- "$rx" 2>/dev/null; fi
+        done
+    fi
+}
 url_junk_filter() {
     grep -viE '%5c|%7B%7B|/undefined/|/http_|://[^/]+/(Bun|Deno|Trident|Edge|iPhone|Node\.js|Zone\.js|\.exec)/?$'
 }
@@ -1179,7 +1192,7 @@ extract_map_sources() {
 }
 
 export C_R C_K C_RED C_GRN C_Y C_BLU C_MAG C_CYN C_W
-export -f out
+export -f out _mpgrep
 export -f _jitter http_head url_junk_filter js_name_for_url record_js_map js_fetch js_progress page_fetch resolve_url recover_one_sourcemap extract_map_sources
 
 adapt_threads() {
@@ -1601,7 +1614,7 @@ st_crawl() {
     local katana_ef="css,png,jpg,jpeg,gif,svg,ico,webp,avif,bmp,tiff,woff,woff2,ttf,otf,eot,pdf,zip,tar,tgz,gz,bz2,xz,7z,rar,mp3,wav,ogg,m4a,mp4,webm,avi,mov,mkv"
 
     : > "$SESSION_DIR/urls/hosts-katana.txt"
-    : > "$SESSION_DIR/urls/soft-200-hosts.txt"
+    : > "$SESSION_DIR/findings/probes/soft-200-hosts.txt"
     while IFS= read -r _kh; do
         [ -n "$_kh" ] || continue
         _kp1="/reconly-probe-$RANDOM$RANDOM"; _kp2="/reconly-probe-$RANDOM$RANDOM"
@@ -1622,13 +1635,13 @@ st_crawl() {
         fi
         rm -f "$_kt1" "$_kt2"
         if [ -n "$_sig" ]; then
-            printf '%s\n' "${_kh} ($_sig)" >> "$SESSION_DIR/urls/soft-200-hosts.txt"
+            printf '%s\n' "${_kh} ($_sig)" >> "$SESSION_DIR/findings/probes/soft-200-hosts.txt"
         else
             printf '%s\n' "$_kh" >> "$SESSION_DIR/urls/hosts-katana.txt"
         fi
     done < "$SESSION_DIR/hosts/hosts-live.txt"
-    _s200n=$(wc -l < "$SESSION_DIR/urls/soft-200-hosts.txt" 2>/dev/null | tr -d ' '); _s200n=${_s200n:-0}
-    [ "$_s200n" -gt 0 ] && out "${C_Y}  soft-200 catch-all detected on ${_s200n} hosts (identical bodies) >> urls/soft-200-hosts.txt${C_R}"
+    _s200n=$(wc -l < "$SESSION_DIR/findings/probes/soft-200-hosts.txt" 2>/dev/null | tr -d ' '); _s200n=${_s200n:-0}
+    [ "$_s200n" -gt 0 ] && out "${C_Y}  soft-200 catch-all detected on ${_s200n} hosts (identical bodies) >> findings/probes/soft-200-hosts.txt${C_R}"
 
     out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 5 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -fs rdn -H 'User-Agent: ***' -ef '$katana_ef' < urls/hosts-katana.txt | awk '!seen[\$0]++' >> urls/crawl-katana.txt (chunked) || true"
     : > "$SESSION_DIR/urls/crawl-katana.txt"
@@ -1685,7 +1698,7 @@ st_classify_js() {
     fi
     rm -f "$SESSION_DIR/state/tmp/.all-urls-raw.txt"
     grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" "$SESSION_DIR/urls/urls-all.txt" | sort -u > "$SESSION_DIR/urls/urls-inscope.txt"
-    comm -23 "$SESSION_DIR/urls/urls-all.txt" "$SESSION_DIR/urls/urls-inscope.txt" > "$SESSION_DIR/urls/urls-outofscope.txt"
+    comm -23 "$SESSION_DIR/urls/urls-all.txt" "$SESSION_DIR/urls/urls-inscope.txt" > "$SESSION_DIR/findings/surface/urls-outofscope.txt"
     grep -E '\.(js|mjs)(\?|$)' "$SESSION_DIR/urls/urls-inscope.txt" | sort -u > "$SESSION_DIR/urls/urls-js.txt"
     grep -E '\.json(\?|$)' "$SESSION_DIR/urls/urls-inscope.txt" | sort -u > "$SESSION_DIR/urls/urls-json.txt"
     grep -E '(\.(env|pem|key|p12|pfx|bak|backup|old|sql|sqlite|sqlite3|db|dump|log|config|cfg|ini|yaml|yml|xml|conf|git|gitignore|zip|tar|gz|tgz|7z|rar|swp|swo|crt|csr|htpasswd|npmrc|dockercfg|ps1|sh|htaccess|txt|ds_store|tfstate|tfvars|svn|hg|bzr|idea|vscode|vagrant|ovpn|ppk|kdbx)(\?|$))|(apple-app-site-association|openid-configuration|security\.txt|crossdomain\.xml|clientaccesspolicy\.xml)' "$SESSION_DIR/urls/urls-inscope.txt" | sort -u > "$SESSION_DIR/urls/urls-artifacts.txt"
@@ -1698,7 +1711,7 @@ st_classify_js() {
         lastseg = path
         sub(/.*\//, "", lastseg)
         if (lastseg ~ /\./ && lastseg !~ /\.(js|mjs|map)$/) next
-        if (path !~ /\.(js|mjs|map)($|\?)/ && path !~ /\/(assets|static|build|dist|chunks?)\// && lastseg !~ /[0-9a-f]{8,}/ && lastseg !~ /^(main|runtime|polyfills|scripts|styles|vendor|chunk|app|index|bundle|sw|worker|common|shared)([._-]|$)/) next
+        if (path !~ /\.(js|mjs|map)($|\?)/ && path !~ /\/(assets|static|build|dist|chunks?)\// && lastseg !~ /[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/ && lastseg !~ /^(main|runtime|polyfills|scripts|styles|vendor|chunk|app|index|bundle|sw|worker|common|shared)([._-]|$)/) next
         print $0
     }' "$SESSION_DIR/urls/urls-inscope.txt" | sort -u > "$SESSION_DIR/urls/urls-js-candidates.txt"
     grep -E '\b(api|v[0-9]+|graphql|rest|endpoint|ajax)\b' "$SESSION_DIR/urls/urls-inscope.txt" | grep -E -v '\.(css|js|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|xml|pdf|zip)(\?|$)' | sort -u > "$SESSION_DIR/urls/urls-api.txt"
@@ -1736,23 +1749,34 @@ st_js_pipeline() {
         "$SESSION_DIR/state/sm-done.txt" "$SESSION_DIR/state/obf-done.txt" "$SESSION_DIR/state/obf-hits.txt" \
         "$SESSION_DIR/state/pretty-done.txt" "$SESSION_DIR/state/pretty-hashes.txt" "$SESSION_DIR/state/page-hashes.txt"
 
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 10 \$origin/{/sw.js,/service-worker.js,/worker.js,/precache-manifest.js}   (first-30 live origins) >> js/service-worker-urls.txt"
-    : > "$SESSION_DIR/js/service-worker-urls.txt"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 10 \$origin/{/sw.js,/service-worker.js,/worker.js,/precache-manifest.js}   (first-30 live origins) >> findings/surface/service-worker-urls.txt"
+    : > "$SESSION_DIR/findings/surface/service-worker-urls.txt"
+    _swpats="$SESSION_DIR/state/tmp/.sw-patterns.txt"
+    if [ -s "$HOME/github-tools/hunt-custom.txt" ]; then
+        grep -v '^#' "$HOME/github-tools/hunt-custom.txt" | awk -F'|' '{ if (NF >= 3) { r = $0; sub(/^[^|]*\|/, "", r); sub(/\|[^|]*$/, "", r); if (r != "") print r } }' > "$_swpats" 2>/dev/null
+    fi
     head -30 "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null | awk -F/ '{print $1"//"$3}' | sort -u | while read -r origin; do
             for sw in /sw.js /service-worker.js /worker.js /precache-manifest.js; do
             local body
             body=$(curl -s -f -m 10 -A "$FAKE_UA" "$origin$sw" 2>/dev/null)
             [ -z "$body" ] && continue
+            if [ -s "$SESSION_DIR/state/tmp/.sw-patterns.txt" ]; then
+                _swh=$(printf '%s' "$body" | _mpgrep "$SESSION_DIR/state/tmp/.sw-patterns.txt" | sort -u | head -5)
+                if [ -n "$_swh" ]; then
+                    { echo "== $origin$sw"; echo "$_swh"; } >> "$SESSION_DIR/findings/probes/body-secrets.txt"
+                fi
+            fi
             printf '%s\n' "$body" | grep -oE "['\"][^'\"]+\.(js|html|css)['\"]" | sed -e 's/^.//' -e 's/.$//' | while read -r a; do
                 case "$a" in http*) printf '%s\n' "$a" ;; /*) printf '%s\n' "$origin$a" ;; *) printf '%s\n' "$origin/$a" ;; esac
-            done >> "$SESSION_DIR/js/service-worker-urls.txt"
+            done >> "$SESSION_DIR/findings/surface/service-worker-urls.txt"
         done
     done
-    sort -u "$SESSION_DIR/js/service-worker-urls.txt" -o "$SESSION_DIR/js/service-worker-urls.txt"
-    if [ -s "$SESSION_DIR/js/service-worker-urls.txt" ]; then
-        grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" "$SESSION_DIR/js/service-worker-urls.txt" | sort -u >> "$SESSION_DIR/urls/urls-inscope.txt" 2>/dev/null
+    sort -u "$SESSION_DIR/findings/surface/service-worker-urls.txt" -o "$SESSION_DIR/findings/surface/service-worker-urls.txt"
+    rm -f "$SESSION_DIR/state/tmp/.sw-patterns.txt"
+    if [ -s "$SESSION_DIR/findings/surface/service-worker-urls.txt" ]; then
+        grep -E "^https?://([a-zA-Z0-9_-]+\.)*${DOMAIN_ESCAPED}(:[0-9]+)?(/|$)" "$SESSION_DIR/findings/surface/service-worker-urls.txt" | sort -u >> "$SESSION_DIR/urls/urls-inscope.txt" 2>/dev/null
         sort -u "$SESSION_DIR/urls/urls-inscope.txt" -o "$SESSION_DIR/urls/urls-inscope.txt"
-        grep -E '\.(js|mjs)(\?|$)' "$SESSION_DIR/js/service-worker-urls.txt" | sort -u >> "$SESSION_DIR/urls/urls-js.txt" 2>/dev/null
+        grep -E '\.(js|mjs)(\?|$)' "$SESSION_DIR/findings/surface/service-worker-urls.txt" | sort -u >> "$SESSION_DIR/urls/urls-js.txt" 2>/dev/null
         sort -u "$SESSION_DIR/urls/urls-js.txt" -o "$SESSION_DIR/urls/urls-js.txt" 2>/dev/null
     fi
 
@@ -1784,7 +1808,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
 
         if [ "$pending" -gt 0 ]; then
             out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .js-pending.txt -sr -srd tmp/httpx-js -json -rl $KATANA_RL   (primary JS fetch: $pending files, Go TLS fingerprint)"
-            awk '{n=$0; sub(/\?.*/,"",n); sub(/.*\//,"",n); if (n ~ /[0-9a-f]{8,}/) { if(!seen[n]++) print } else print }' "$SESSION_DIR/state/tmp/.js-pending.txt" > "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" 2>/dev/null || cp "$SESSION_DIR/state/tmp/.js-pending.txt" "$SESSION_DIR/state/tmp/.js-pending-dedup.txt"
+            awk '{n=$0; sub(/\?.*/,"",n); sub(/.*\//,"",n); if (n ~ /[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/) { if(!seen[n]++) print } else print }' "$SESSION_DIR/state/tmp/.js-pending.txt" > "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" 2>/dev/null || cp "$SESSION_DIR/state/tmp/.js-pending.txt" "$SESSION_DIR/state/tmp/.js-pending-dedup.txt"
             _pd=$(wc -l < "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" | tr -d ' ')
             [ "${_pd:-0}" -gt 0 ] && [ "$_pd" -lt "$pending" ] && { out "${C_W}basename dedup: $pending -> $_pd unique chunks${C_R}"; }
             cp "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" "$SESSION_DIR/state/tmp/.js-pending.txt"
@@ -1866,7 +1890,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
 
         if [ "$round" -eq 1 ] && [ -s "$SESSION_DIR/urls/urls-inscope.txt" ]; then
             _rotate_ua
-            [ -s "$SESSION_DIR/urls/soft-200-hosts.txt" ] && awk '{ line=$0; sub(/^https?:\/\//,"",line); scheme=($0 ~ /^https:/)?"443":"80"; if (match(line, / \([^)]+\)$/)) { hp=substr(line,1,RSTART-1); sz=line; sub(/.*\(/,"",sz); sub(/\)$/,"",sz); if (hp !~ /:[0-9]+$/) hp=hp":"scheme; print hp "\t" sz } }' "$SESSION_DIR/urls/soft-200-hosts.txt" > "$SESSION_DIR/state/tmp/.s200-sigs.tsv"
+            [ -s "$SESSION_DIR/findings/probes/soft-200-hosts.txt" ] && awk '{ line=$0; sub(/^https?:\/\//,"",line); scheme=($0 ~ /^https:/)?"443":"80"; if (match(line, / \([^)]+\)$/)) { hp=substr(line,1,RSTART-1); sz=line; sub(/.*\(/,"",sz); sub(/\)$/,"",sz); if (hp !~ /:[0-9]+$/) hp=hp":"scheme; print hp "\t" sz } }' "$SESSION_DIR/findings/probes/soft-200-hosts.txt" > "$SESSION_DIR/state/tmp/.s200-sigs.tsv"
             cat "$SESSION_DIR/urls/urls-revived.txt" 2>/dev/null | url_junk_filter | awk '!seen[$0]++' > "$SESSION_DIR/state/tmp/.pages-priority.txt"
             awk 'NR==FNR { prio[$0]=1; next } !($0 in prio)' "$SESSION_DIR/state/tmp/.pages-priority.txt" "$SESSION_DIR/urls/urls-inscope.txt" \
               | grep -vE '\.(js|css|png|jpe?g|gif|svg|ico|woff2?|ttf|map|json|xml|pdf|zip|mp4|mp3|avi|mov|webp)(\?|$)' \
@@ -2066,7 +2090,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
         touch "$SESSION_DIR/state/tmp/.disc-marker"
     done
 
-    [ -s "$SESSION_DIR/state/tmp/.js-failed.txt" ] && comm -23 <(sort -u "$SESSION_DIR/state/tmp/.js-failed.txt") <(awk -F'|' '{print $2}' "$SESSION_DIR/state/url-map.txt" 2>/dev/null | sort -u) > "$SESSION_DIR/urls/urls-failed.txt"
+    [ -s "$SESSION_DIR/state/tmp/.js-failed.txt" ] && comm -23 <(sort -u "$SESSION_DIR/state/tmp/.js-failed.txt") <(awk -F'|' '{print $2}' "$SESSION_DIR/state/url-map.txt" 2>/dev/null | sort -u) > "$SESSION_DIR/findings/probes/urls-failed.txt"
     rm -f "$SESSION_DIR/state/tmp/.js-failed.txt"
     rm -f "$SESSION_DIR/state/tmp/.js-round-seeds.txt" "$SESSION_DIR/state/tmp/.js-pending.txt" "$SESSION_DIR/state/tmp/.js-done-urls.txt" "$SESSION_DIR/state/tmp/.js-round-fetched.txt" "$SESSION_DIR/state/tmp/.js-discovered.txt" "$SESSION_DIR/state/tmp/.sm-all.txt" "$SESSION_DIR/state/tmp/.sm-new.txt" "$SESSION_DIR/state/tmp/.obf-all.txt" "$SESSION_DIR/state/tmp/.obf-new.txt" "$SESSION_DIR/state/tmp/.pretty-all.txt" "$SESSION_DIR/state/tmp/.pretty-new.txt" "$SESSION_DIR/state/api-sampled.txt"
 
@@ -2159,10 +2183,10 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
     mkdir -p "$SESSION_DIR/findings/secrets"
 
     hunt() {
-        local msg="$1" regex="$2" outfile="$3" exclude="${4:-}" severity="${5:-MEDIUM}" minent="${6:-0}"
+        local msg="$1" regex="$2" outfile="$3" exclude="${4:-}" severity="${5:-MEDIUM}" minent="${6:-0}" subdir="${7:-secrets}"
         printf '%s|%s|%s\n' "$outfile" "$msg" "$severity" >> "$SESSION_DIR/findings/type-map.txt"
         local raw=""
-        for rep in formatted mapsrc deobf json artifacts; do
+        for rep in formatted mapsrc deobf json artifacts sourcemaps; do
             [ -d "$SESSION_DIR/js/$rep" ] || continue
             local chunk
             if command -v rg &>/dev/null; then
@@ -2178,7 +2202,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
         if [ "$minent" != "0" ] && [ -n "$raw" ]; then
             raw=$(printf '%s\n' "$raw" | awk -F: -v me="$minent" '{m="";for(i=3;i<=NF;i++)m=m $i (i<NF?":":"");s=m;n=length(s);if(n<16)next;delete c;for(i=1;i<=n;i++)c[substr(s,i,1)]++;e=0;for(k in c){p=c[k]/n;e-=p*log(p)};e=e/log(2);if(e+0>=me+0)print}')
         fi
-        printf '%s\n' "$raw" | awk 'NF' | sort -u > "$SESSION_DIR/findings/secrets/$outfile"
+        printf '%s\n' "$raw" | awk 'NF' | sort -u > "$SESSION_DIR/findings/$subdir/$outfile"
     }
 
     hunt "Cloud & SaaS tokens" '\b(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{22,}|ghs_[a-zA-Z0-9]{36}|ghr_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z\-_]{35}|xox[baprs]-[0-9a-zA-Z-]{10,}|xapp-1-[0-9a-zA-Z-]{10,}|SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}|glpat-[0-9A-Za-z_-]{20,}|glrt-[0-9A-Za-z_-]{20,}|npm_[A-Za-z0-9]{36}|pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{40,}|hooks\.slack\.com/services/T[A-Za-z0-9]+/B[A-Za-z0-9]+/[A-Za-z0-9]+|discord(app)?\.com/api/webhooks/[0-9]{15,}/[A-Za-z0-9_-]{50,}|[0-9]{8,10}:AA[A-Za-z0-9_-]{33}|sk_live_[0-9a-zA-Z]{24}|rk_live_[0-9a-zA-Z]{24}|whsec_[A-Za-z0-9]{20,}|rzp_(?:live|test)_[A-Za-z0-9]{14,}|EAAA[0-9A-Za-z_-]{60}|shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}|hvs\.[A-Za-z0-9_-]{80,}|[0-9A-Za-z]{14}\.atlasv1\.[0-9A-Za-z_-]{60,}|squ_[0-9a-f]{40}|11[0-9a-f]{32}|dop_v1_[a-f0-9]{64}|SK[0-9a-f]{32}|(?:FQoGZXIvYXdz|FwoGZXIvYXdz|IQoJb3JpZ2luX2Vj)[A-Za-z0-9/+=]+|sk-(?!(?:live|test)_)[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{60,}|sk-ant-[A-Za-z0-9_-]{20,}|hf_[A-Za-z0-9]{30,}|gsk_[A-Za-z0-9]{30,}|r8_[A-Za-z0-9]{30,}|sk-or-[A-Za-z0-9_-]{20,}|1//[0-9A-Za-z_-]{40,}|ya29\.[0-9A-Za-z_-]+|EAAB[0-9A-Za-z]+|sl\.[A-Za-z0-9_-]{100,})\b' "cloud-tokens.txt" '(EXAMPLE|YOUR_API_KEY|XXXX|SAMPLE|dummy|placeholder)' "CRITICAL" "3.0"
@@ -2204,7 +2228,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
     hunt "Cognito Pool IDs" '[a-z]{2}(?:-gov)?-[a-z]+-[0-9]{1,2}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "cognito-pools.txt" "" "MEDIUM"
     hunt "S3 buckets" '\b[a-z0-9][a-z0-9.-]*\.s3([.-][a-z0-9-]+)?\.amazonaws\.com\b|s3://[a-zA-Z0-9.-]+' "s3-buckets.txt" "(example|amazonaws\.com/s3|aws-sdk)" "MEDIUM"
     hunt "Firebase/Supabase/Appwrite" '[a-zA-Z0-9.-]+\.(firebaseio\.com|firebaseapp\.com|supabase\.co|appwrite\.io)' "baas-urls.txt" "" "MEDIUM"
-    hunt "Internal hostnames" '\b[a-z0-9][a-z0-9-]*\.(internal|corp|local|intranet|staging|uat)\b' "internal-hosts.txt" "" "MEDIUM"
+    hunt "Internal hostnames" '(?<![\w.])([a-z0-9][a-z0-9-]{2,62}\.(?:internal|corp|local|intranet)(?=[/:?#\x22\x27)\],]|$))' "internal-hosts.txt" "" "MEDIUM"
     hunt "Debug endpoints" '(/actuator/(?:env|heapdump|beans|configprops|mappings|threaddump)|/debug/pprof|/debug/vars|/_debug/vars)' "debug-endpoints.txt" "" "MEDIUM"
     hunt "Source maps" 'sourceMappingURL\s*=\s*\K[^\s\x22\x27]+\.map' "source-maps.txt" "" "MEDIUM"
     hunt "DOM XSS sinks" '(?<![A-Za-z0-9_$])(?:[A-Za-z_$][\w$]*\.(?:innerHTML|outerHTML|srcdoc)\s*=|[A-Za-z_$][\w$]*\.insertAdjacentHTML\s*\(|document\.write(?:ln)?\s*\(|\beval\s*\(|new\s+Function\s*\(|\$\([^)]*\)\.html\s*\(|(?:location(?:\.href)?|window\.location)\s*=(?!=)|location\.(?:replace|assign)\s*\(|window\.open\s*\(|document\.domain\s*=|(?:setTimeout|setInterval)\s*\(\s*["'"'"'`]|execScript\s*\()' "dom-sinks.txt" "" "MEDIUM"
@@ -2218,7 +2242,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
     hunt "Emails" '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' "emails.txt" '(sentry\.io|example\.|w3\.org|@2x|@3x|aa@yy\.xyz|somethingdoug|shtylman|onur\.cakmak|^user@site)' "INFO"
     hunt "IPs" '\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\b' "ip-addresses.txt" '(0\.0\.0\.0|127\.0\.0\.1|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[01]\.|255\.255)' "INFO"
     hunt "Debug flags" '(?i)\bdebug\b\s*[:=]\s*[\x22\x27]?(true|1)' "debug-flags.txt" '(example)' "INFO"
-    hunt "External URLs" 'https?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "js-external-urls.txt" '(w3\.org|react\.dev|localhost|github\.com|github\.io|npmjs\.com|mozilla\.org|example\.com|stackoverflow\.com|googleapis\.com|gstatic\.com|cloudflare\.com|jsdelivr\.net|unpkg\.com|google-analytics\.com|googletagmanager\.com|facebook\.net|facebook\.com|twitter\.com|x\.com|wikimedia\.org|wikipedia\.org|flagcdn\.com|whatwg\.org|rfc-editor\.org|iana\.org|ecma-international\.org|unicode\.org|crisp\.chat|sentry-cdn|sentry\.io|\.png|\.jpe?g|\.gif|\.svg|\.webp|\.avif|\.ico|\.woff2?|\.ttf|\.css)(\?|$)' "INFO"
+    hunt "External URLs" 'https?://[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/=?&._~:%-]*' "js-external-urls.txt" '(w3\.org|react\.dev|localhost|github\.com|github\.io|npmjs\.com|mozilla\.org|example\.com|stackoverflow\.com|googleapis\.com|gstatic\.com|cloudflare\.com|jsdelivr\.net|unpkg\.com|google-analytics\.com|googletagmanager\.com|facebook\.net|facebook\.com|twitter\.com|x\.com|wikimedia\.org|wikipedia\.org|flagcdn\.com|whatwg\.org|rfc-editor\.org|iana\.org|ecma-international\.org|unicode\.org|crisp\.chat|sentry-cdn|sentry\.io|nextjs\.org|redux(-toolkit)?\.js\.org|ckeditor\.com|formatjs\.io|json-schema\.org|socket\.io|caniuse\.com|bugs\.(chromium|webkit)\.org|csrc\.nist\.gov|opensource\.org|aomedia\.org|w3ctech\.com|evilmartians\.com|npms\.io|lodash\.com|underscorejs\.org|date-fns|react-dnd\.github\.io|base-ui\.com|litix\.io|fengyuanchen\.github\.io|docs\.strapi\.io|strapi\.io|developer\.chrome\.com|developers\.google\.com|firebase\.google\.com|web\.dev|schema\.org|play\.google\.com|apps\.apple\.com|youtube\.com|facebook\.com|instagram\.com|tiktok\.com|linkedin\.com|wa\.me|spotify\.com|vimeo\.com|dailymotion\.com|\.png|\.jpe?g|\.gif|\.svg|\.webp|\.avif|\.ico|\.woff2?|\.ttf|\.css)(\?|$)' "INFO"
     hunt "Generic secrets" '(?i)(api[_-]?key|apikey|secret|token|password|auth[_-]?token)[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9\-_=]{16,}' "generic-secrets.txt" '(undefined|null|true|false|function|your[a-z0-9_-]*|changeme|placeholder|dummy|redacted|x{8,}|\*{8,}|123456789|example|[:=][[:space:]]*[\x22\x27]?[_$][a-zA-Z0-9_$]+[\x22\x27]?$)' "MEDIUM" "3.4"
     hunt "Cloud keys II" '\b(oci1\.[a-z0-9]{15,}|LTAI[A-Za-z0-9]{12,}|cf_[a-zA-Z0-9_]{30,}|dckr_pat_[A-Za-z0-9_-]{20,}|fo1_[A-Za-z0-9_]{30,}|scw_[a-f0-9]{30,}|hcloud_[A-Za-z0-9]{30,}|do_pat_[A-Za-z0-9_-]{40,}|vultr_[a-f0-9]{30,})\b' "cloud-keys-2.txt" '(example|test)' "CRITICAL" "3.0"
     hunt "Comms API keys" '\b(key-[0-9a-f]{32}|AC[0-9a-f]{32}:[0-9a-f]{32}|pm_[a-zA-Z0-9]{20,}|mg\.[A-Za-z0-9]{20,}|mc\.[a-f0-9]{32}|plivo_[a-zA-Z0-9]{30,}|vonage[-_][a-z0-9]{20,}|ably-[a-zA-Z0-9_-]{30,}|pub-[a-f0-9]{32}|sub-[a-f0-9]{32}|bird_[a-zA-Z0-9]{20,})\b' "comms-keys.txt" '(test|example)' "CRITICAL" "3.0"
@@ -2234,7 +2258,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
     hunt "Product/SaaS keys" '\b(pat-na1-[0-9a-f]{40}|pat-eu1-[0-9a-f]{40}|lin_api_[A-Za-z0-9]{20,}|secret_[A-Za-z0-9]{43}|notion[_-]?secret[_-]?[A-Za-z0-9]{20,}|seg[0-9a-f]{32})\b' "saas-keys.txt" '(test|example)' "MEDIUM" "3.0"
     hunt "Captcha keys" '\b(6L[0-9A-Za-z_-]{38}|10000000-ffff-ffff-ffff-000000000001|0x4AAAA[0-9A-Za-z]{20,}|es_[0-9a-f]{32})\b' "captcha-keys.txt" "" "MEDIUM"
     hunt "WebPush/VAPID" '("privateKey"\s*:\s*"[A-Za-z0-9_-]{40,}"|vapid[_-]?(private|public)[_-]?key)' "webpush.txt" '(test)' "MEDIUM" "3.0"
-    hunt "Weak passwords" '(?i)(password|passwd|pwd|passcode)[\x22\x27\s]*[:=][\x22\x27\s]*[\x22\x27]?[A-Za-z0-9!@#$%^&*._-]{6,15}[\x22\x27]?' "weak-passwords.txt" '(undefined|null|example|changeme|your[_-]|placeholder|password["'"'"' ]*[:=]["'"'"' ]*["'"'"']?(password|123456)|\*\*\*)' "MEDIUM" "0"
+    hunt "Weak passwords" '(?i)(password|passwd|pwd|passcode)[\x22\x27\s]*[:=][\x22\x27\s]*[\x22\x27][A-Za-z0-9!@#$%^&*._-]{6,15}[\x22\x27]' "weak-passwords.txt" '(undefined|null|example|changeme|your[_-]|placeholder|password["'"'"' ]*[:=]["'"'"' ]*["'"'"']?(password|123456)|\*\*\*)' "MEDIUM" "0"
 
     if [ -s "$HOME/github-tools/hunt-custom.txt" ]; then
         while IFS= read -r _cl; do
@@ -2245,18 +2269,21 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
             _cr="${_cl#*|}"; _cr="${_cr%|*}"
             [ -n "$_cn" ] && [ -n "$_cr" ] || continue
             case "$_cl" in *'|'*) : ;; *) continue ;; esac
+            _csd="secrets"
+            case "$_cn" in "[SURFACE] "*) _csd="surface"; _cn="${_cn#\[SURFACE] }" ;; esac
             _cf=$(printf '%s' "$_cn" | tr -cd 'a-zA-Z0-9_' | tr 'A-Z' 'a-z' | cut -c1-40)
             [ -n "$_cf" ] || continue
-            hunt "$_cn (custom)" "$_cr" "custom-$_cf.txt" '' "$_cs" "0"
+            hunt "$_cn (custom)" "$_cr" "custom-$_cf.txt" '' "$_cs" "0" "$_csd"
         done < "$HOME/github-tools/hunt-custom.txt"
     fi
 
     local seenfile="$SESSION_DIR/state/tmp/.seen-values"
     : > "$seenfile"
+    : > "$SESSION_DIR/findings/secrets/UNIQUE-SECRETS.tsv"
     local _dedup_order="cloud-tokens.txt private-keys.txt private-keys-2.txt db-creds.txt basic-auth.txt signing-secrets.txt config-file-secrets.txt comms-keys.txt auth-provider.txt payments-crypto.txt cloud-keys-2.txt ai-keys.txt ai-keys-2.txt payment-webhooks.txt devops-tokens.txt registry-ci.txt observability.txt auth-tokens.txt oauth-secrets.txt url-secrets.txt saas-tokens.txt saas-keys.txt tp-webhooks.txt hardcoded-bearer.txt presigned-urls.txt presigned-urls-2.txt azure-keys.txt service-accounts.txt smtp-creds.txt baas-pairs.txt generic-secrets.txt"
     for f in $_dedup_order $(ls "$SESSION_DIR/findings/secrets/"*.txt 2>/dev/null | xargs -r -n1 basename | grep -vxF -f <(printf '%s\n' $_dedup_order) | sort); do
         [ -s "$SESSION_DIR/findings/secrets/$f" ] || continue
-        awk -F: -v seenfile="$seenfile" -v sidecar="$SESSION_DIR/state/value-locations.tsv" 'BEGIN{while((getline l<seenfile)>0)seen[l]=1}{key="";for(i=3;i<=NF;i++)key=key $i (i<NF?":":"");if(key in seen){if($1!="")printf "%s\t%s\n",key,$1 >> sidecar;next}print;seen[key]=1}' "$SESSION_DIR/findings/secrets/$f" > "$SESSION_DIR/state/tmp/.tmp.$f"
+        awk -F: -v seenfile="$seenfile" -v sidecar="$SESSION_DIR/state/value-locations.tsv" -v agg="$SESSION_DIR/findings/secrets/UNIQUE-SECRETS.tsv" 'BEGIN{while((getline l<seenfile)>0)seen[l]=1}{key="";for(i=3;i<=NF;i++)key=key $i (i<NF?":":"");if(key in seen){if($1!="")printf "%s\t%s\n",key,$1 >> sidecar;next}print;seen[key]=1;printf "%s\t%s\t%s\n", key, f, $1 >> agg}' "$SESSION_DIR/findings/secrets/$f" > "$SESSION_DIR/state/tmp/.tmp.$f"
         awk -F: '{key="";for(i=3;i<=NF;i++)key=key $i (i<NF?":":"");print key}' "$SESSION_DIR/state/tmp/.tmp.$f" >> "$seenfile"
         mv "$SESSION_DIR/state/tmp/.tmp.$f" "$SESSION_DIR/findings/secrets/$f"
     done
@@ -2266,7 +2293,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
         find "$SESSION_DIR/js" -type f -printf '%f\t%P\n' 2>/dev/null | sort -u > "$SESSION_DIR/state/tmp/.np.tsv"
         local npf="$SESSION_DIR/state/tmp/.np.tsv" um="$SESSION_DIR/state/url-map.txt" side="$SESSION_DIR/state/value-locations.tsv"
         local _ef
-        for _ef in "$SESSION_DIR/findings"/secrets/*.txt; do
+        for _ef in "$SESSION_DIR/findings"/secrets/*.txt "$SESSION_DIR/findings"/surface/custom-*.txt; do
             [ -f "$_ef" ] || continue
             awk -v npf="$SESSION_DIR/state/tmp/.np.tsv" -v um="$SESSION_DIR/state/url-map.txt" -v side="$SESSION_DIR/state/value-locations.tsv" '
                 FILENAME==npf { p[$1]=$2; next }
@@ -2278,7 +2305,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
                     else if (index(line,"::")>0) { n=split(line,b,"::"); if(n>=2) key=b[2]; }
                     if (key!="" && key in loc) {
                         nn=split(loc[key],c,","); added=0;
-                        for (i2=1; i2<=nn && added<6; i2++) { f=c[i2];
+                        for (i2=1; i2<=nn && added<4; i2++) { f=c[i2];
                             if (f in p) { line=line "  |  FILE: js/" p[f]; added++ }
                             else if (f in m) { line=line "  |  URL: " m[f]; added++ }
                         }
@@ -2292,38 +2319,42 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
         find "$SESSION_DIR/js" -type f -printf '%f\t%P\n' 2>/dev/null | sort -u > "$SESSION_DIR/state/tmp/.name-path.tsv"
         local np="$SESSION_DIR/state/tmp/.name-path.tsv" um="$SESSION_DIR/state/url-map.txt"
         local _ef
-        for _ef in "$SESSION_DIR/findings"/secrets/*.txt; do
+        for _ef in "$SESSION_DIR/findings"/secrets/*.txt "$SESSION_DIR/findings"/surface/custom-*.txt; do
             [ -f "$_ef" ] || continue
             awk -v np="$SESSION_DIR/state/tmp/.name-path.tsv" -v um="$SESSION_DIR/state/url-map.txt" -F'\t' '
                 FILENAME==np { p[$1]=$2; next }
                 FILENAME==um { split($0,u,"|"); m[$1]=u[2]; next }
                 { fn=$0; sub(/:.*/,"",fn); gsub(/^[[:space:]]+|[[:space:]]+$/,"",fn); outl=$0;
-                  if (fn in m) outl=outl "  |  URL: " m[fn];
-                  if (fn in p) outl=outl "  |  FILE: js/" p[fn];
+                  if ((fn in m) && index(outl,"  |  URL: " m[fn])==0) outl=outl "  |  URL: " m[fn];
+                  if ((fn in p) && index(outl,"  |  FILE: js/" p[fn])==0) outl=outl "  |  FILE: js/" p[fn];
                   print outl }' "$np" "$um" "$_ef" > "$_ef.tmp" 2>/dev/null && mv "$_ef.tmp" "$_ef"
         done
         rm -f "$SESSION_DIR/state/tmp/.name-path.tsv"
     fi
 
-    local _hf _hn
+    : > "$SESSION_DIR/findings/INDEX.tsv"
     while IFS='|' read -r _tf _msg _sev; do
-        _hf="$SESSION_DIR/findings/secrets/$_tf"
-        [ -s "$_hf" ] || continue
-        _hn=$(wc -l < "$_hf" | tr -d ' ')
+        for _dir in secrets surface; do
+            _hf="$SESSION_DIR/findings/$_dir/$_tf"
+            [ -s "$_hf" ] || continue
+            _hn=$(wc -l < "$_hf" | tr -d ' ')
+            printf '%s\t%s\t%s\t%s\t%s\n' "$_sev" "$_dir" "$_tf" "$_hn" "$_msg" >> "$SESSION_DIR/findings/INDEX.tsv"
+        done
     done < "$SESSION_DIR/findings/type-map.txt"
+    [ -s "$SESSION_DIR/findings/INDEX.tsv" ] && sort -k1,1 -k4,4rn "$SESSION_DIR/findings/INDEX.tsv" -o "$SESSION_DIR/findings/INDEX.tsv"
 
 
     out "${C_W}GraphQL APQ probing${C_R}"
     local apq_hashes
-    apq_hashes=$(grep -rhoE 'sha256Hash.{0,5}"[0-9a-f]{64}"' "$SESSION_DIR/js/raw" "$SESSION_DIR/js/formatted" "$SESSION_DIR/js/mapsrc" "$SESSION_DIR/js/deobf" 2>/dev/null | grep -oE '[0-9a-f]{64}' | sort -u | head -10)
+    apq_hashes=$(grep -rhoE 'sha256Hash.{0,5}"[0-9a-f]{64}"' "$SESSION_DIR/js/raw" "$SESSION_DIR/js/formatted" "$SESSION_DIR/js/mapsrc" "$SESSION_DIR/js/deobf" 2>/dev/null | grep -oE '[0-9a-f]{64}' | sort -u | head -5)
     : > "$SESSION_DIR/findings/analysis/graphql-persisted-queries.txt"
     if [ -n "$apq_hashes" ]; then
         printf '%s\n' "$apq_hashes" | while read -r h; do echo "hash: $h" >> "$SESSION_DIR/findings/analysis/graphql-persisted-queries.txt"; done
-        head -5 "$SESSION_DIR/hosts/hosts-live.txt" | awk -F/ '{print $1"//"$3}' | sort -u | while read -r origin; do
+        head -3 "$SESSION_DIR/hosts/hosts-live.txt" | awk -F/ '{print $1"//"$3}' | sort -u | while read -r origin; do
             for gp in /graphql /api/graphql /query; do
                 printf '%s\n' "$apq_hashes" | while read -r h; do
                     local resp
-                    resp=$(curl -s -m 10 -X POST -H 'Content-Type: application/json' "$origin$gp" -d "{\"operationName\":null,\"variables\":{},\"extensions\":{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\"$h\"}}}" 2>/dev/null)
+                    resp=$(curl -s -m 8 -X POST -H 'Content-Type: application/json' "$origin$gp" -d "{\"operationName\":null,\"variables\":{},\"extensions\":{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\"$h\"}}}" 2>/dev/null)
                     if printf '%s' "$resp" | grep -qE '"data"|"errors"'; then
                         echo "$origin$gp -> hash $h: RESPONDS" >> "$SESSION_DIR/findings/analysis/graphql-persisted-queries.txt"
                     fi
@@ -2368,6 +2399,13 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} web.archiv
         [ -s "$SESSION_DIR/state/js-map.txt" ] && cut -d'|' -f2 "$SESSION_DIR/state/js-map.txt"
         cat "$SESSION_DIR/urls/urls-js.txt" 2>/dev/null
     } | sort -u | head -150 > "$SESSION_DIR/state/tmp/.wb-js.txt"
+    _wbpats="$SESSION_DIR/state/tmp/.wb-patterns.txt"
+    if [ -s "$HOME/github-tools/hunt-custom.txt" ]; then
+        grep -v '^#' "$HOME/github-tools/hunt-custom.txt" | awk -F'|' '{ if (NF >= 3) { r = $0; sub(/^[^|]*\|/, "", r); sub(/\|[^|]*$/, "", r); if (r != "") print r } }' > "$_wbpats" 2>/dev/null
+    fi
+    if [ ! -s "$_wbpats" ]; then
+        printf '%s\n' 'AKIA[0-9A-Z]{16}|gh[pousr]_[a-zA-Z0-9]{36}|sk_live_[0-9a-zA-Z]{24}|xox[baprs]-[0-9a-zA-Z-]{10,}|SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}|glpat-[0-9A-Za-z_-]{20,}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN[A-Z ]*PRIVATE KEY-----|api[_-]?key["'"'"']? *[:=] *["'"'"'][A-Za-z0-9_-]{16,}' > "$_wbpats"
+    fi
     if [ -s "$SESSION_DIR/state/tmp/.wb-js.txt" ]; then
         mkdir -p "$SESSION_DIR/state/tmp/wayback-js"
         while read -r jsurl; do
@@ -2376,18 +2414,18 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} web.archiv
             enc_jsurl=$(printf '%s' "$jsurl" | jq -sRr @uri 2>/dev/null) || enc_jsurl="$jsurl"
             cdx=$(curl -s -m 15 "https://web.archive.org/cdx/search/cdx?url=${enc_jsurl}&output=text&fl=timestamp,digest&collapse=digest&limit=10" 2>/dev/null)
             [ -z "$cdx" ] && continue
-            echo "$cdx" | awk 'NR < n {print $1}' n=$(echo "$cdx" | wc -l) | while read -r ts; do
+            echo "$cdx" | awk 'NR < n {print $1}' n=$(echo "$cdx" | wc -l) | head -3 | while read -r ts; do
                 local wf hits
                 wf="$SESSION_DIR/state/tmp/wayback-js/${ts}_$(printf '%s' "${jsurl%%\?*}" | md5sum | cut -c1-8)_$(basename "${jsurl%%\?*}")"
                 [ -s "$wf" ] && continue
                 curl -s -m 20 "https://web.archive.org/web/${ts}id_/${jsurl}" -o "$wf" 2>/dev/null
                 [ -s "$wf" ] || continue
-                hits=$(grep -oE 'AKIA[0-9A-Z]{16}|gh[pousr]_[a-zA-Z0-9]{36}|sk_live_[0-9a-zA-Z]{24}|xox[baprs]-[0-9a-zA-Z-]{10,}|SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}|glpat-[0-9A-Za-z_-]{20,}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN[A-Z ]*PRIVATE KEY-----|api[_-]?key["'"'"']? *[:=] *["'"'"'][A-Za-z0-9_-]{16,}' "$wf" 2>/dev/null | sort -u)
+                hits=$(_mpgrep "$_wbpats" "$wf" | sort -u)
                 [ -n "$hits" ] && { echo "$jsurl @ $ts:" >> "$SESSION_DIR/findings/secrets/wayback-secrets.txt"; echo "$hits" | sed 's/^/    /' >> "$SESSION_DIR/findings/secrets/wayback-secrets.txt"; }
             done
         done < "$SESSION_DIR/state/tmp/.wb-js.txt"
     fi
-    rm -rf "$SESSION_DIR/state/tmp/wayback-js" "$SESSION_DIR/state/tmp/.wb-js.txt"
+    rm -rf "$SESSION_DIR/state/tmp/wayback-js" "$SESSION_DIR/state/tmp/.wb-js.txt" "$SESSION_DIR/state/tmp/.wb-patterns.txt"
 
 out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ semgrep${C_R} scan --config=reconly-custom.yml --config=p/{javascript,secrets,react,vue,angular,jwt} --json js/mapsrc js/formatted js/deobf | jq -r 'path:line:check_id: message' || true"
     if [ -d "$SESSION_DIR/js/mapsrc" ] || [ -d "$SESSION_DIR/js/formatted" ]; then
@@ -2548,30 +2586,53 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ npm${C_R} audit --jso
 }
 st_app_surface() {
 out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R} -oP 'path:|fetch(|axios.|url:|WebSocket(|localStorage.|api_url|baseurl|server_url' js/mapsrc js/formatted"
-    local ms="$SESSION_DIR/js/mapsrc" fd="$SESSION_DIR/js/formatted"
+    local ms="$SESSION_DIR/js/mapsrc" fd="$SESSION_DIR/js/formatted" db="$SESSION_DIR/js/deobf"
     local have_grep=0
     if command -v rg &>/dev/null && printf 'x1' | rg -qP '\d' 2>/dev/null; then have_grep=1; fi
     [ "$have_grep" -eq 1 ] || { out "${C_Y}No rg, skipping app surface mapping${C_R}"; return; }
 
-    rg -oP "path:\s*['\"][^'\"]+['\"]" "$ms" "$fd" 2>/dev/null       | sed -E "s/.*path:\s*['\"]([^'\"]+)['\"].*/\1/"       | awk 'length($0)>1 && $0 !~ /\$\{|:|^https?:/' | sort -u > "$SESSION_DIR/findings/surface/app-routes.txt"
+    rg -oP "path:\s*['\"][^'\"]+['\"]" "$ms" "$fd" "$db" 2>/dev/null       | sed -E "s/.*path:\s*['\"]([^'\"]+)['\"].*/\1/"       | awk 'length($0)>1 && $0 !~ /\$\{|:|^https?:/' | sort -u > "$SESSION_DIR/findings/surface/app-routes.txt"
 
     {
-        rg -oP "fetch\s*\(\s*['\"\`][^'\"\`]+['\"\`]" "$ms" "$fd" 2>/dev/null | sed -E "s/.*fetch\s*\(\s*['\"\`]([^'\"\`]+)['\"\`].*/GET \1/"
-        rg -oP "axios\.(get|post|put|delete|patch)\s*\(\s*['\"\`][^'\"\`]+['\"\`]" "$ms" "$fd" 2>/dev/null | sed -E "s/.*axios\.(get|post|put|delete|patch)\s*\(\s*['\"\`]([^'\"\`]+)['\"\`].*/\U\1 \2/"
-        rg -oP "url:\s*['\"][^'\"]+['\"]" "$ms" "$fd" 2>/dev/null | sed -E "s/.*url:\s*['\"]([^'\"]+)['\"].*/GET \1/"
-        rg -oP "new\s+WebSocket\s*\(\s*['\"][^'\"]+['\"]" "$ms" "$fd" 2>/dev/null | sed -E "s/.*WebSocket\s*\(\s*['\"]([^'\"]+)['\"].*/WS \1/"
+        rg -oP "fetch\s*\(\s*['\"\`][^'\"\`]+['\"\`]" "$ms" "$fd" "$db" 2>/dev/null | sed -E "s/.*fetch\s*\(\s*['\"\`]([^'\"\`]+)['\"\`].*/GET \1/"
+        rg -oP "axios\.(get|post|put|delete|patch)\s*\(\s*['\"\`][^'\"\`]+['\"\`]" "$ms" "$fd" "$db" 2>/dev/null | sed -E "s/.*axios\.(get|post|put|delete|patch)\s*\(\s*['\"\`]([^'\"\`]+)['\"\`].*/\U\1 \2/"
+        rg -oP "url:\s*['\"][^'\"]+['\"]" "$ms" "$fd" "$db" 2>/dev/null | sed -E "s/.*url:\s*['\"]([^'\"]+)['\"].*/GET \1/"
+        rg -oP "new\s+WebSocket\s*\(\s*['\"][^'\"]+['\"]" "$ms" "$fd" "$db" 2>/dev/null | sed -E "s/.*WebSocket\s*\(\s*['\"]([^'\"]+)['\"].*/WS \1/"
     } | awk 'NF>=2 && $2 !~ /\$\{|\+/ && $2 !~ /\/$/ && $2 ~ /^(\/|wss?:\/\/)/' | sort -u > "$SESSION_DIR/findings/surface/app-api-calls.txt"
     if [ -s "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" ]; then
         awk '{print "GET " $0}' "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" >> "$SESSION_DIR/findings/surface/app-api-calls.txt"
         sort -u "$SESSION_DIR/findings/surface/app-api-calls.txt" -o "$SESSION_DIR/findings/surface/app-api-calls.txt"
     fi
 
-    rg -oP "(localStorage|sessionStorage)\.(get|set|remove)Item\(\s*['\"][^'\"]+['\"]" "$ms" "$fd" 2>/dev/null       | sed -E "s/.*Item\(\s*['\"]([^'\"]+)['\"].*/\1/"       | awk 'length($0)>2 && $0 !~ /\$\{/' | sort -u > "$SESSION_DIR/findings/surface/app-storage-keys.txt"
+    rg -oP "(localStorage|sessionStorage)\.(get|set|remove)Item\(\s*['\"][^'\"]+['\"]" "$ms" "$fd" "$db" 2>/dev/null       | sed -E "s/.*Item\(\s*['\"]([^'\"]+)['\"].*/\1/"       | awk 'length($0)>2 && $0 !~ /\$\{/' | sort -u > "$SESSION_DIR/findings/surface/app-storage-keys.txt"
 
-    rg -oP -i "(api[_-]?url|baseurl|api[_-]?base|server[_-]?url|endpoint)\s*[:=]\s*['\"][^'\"]+['\"]" "$ms" "$fd" 2>/dev/null       | grep -viE "(localhost|example|placeholder|your[_-]|test)" | sort -u > "$SESSION_DIR/findings/surface/app-environments.txt"
+    rg -oP -i "(api[_-]?url|baseurl|api[_-]?base|server[_-]?url|endpoint)\s*[:=]\s*['\"][^'\"]+['\"]" "$ms" "$fd" "$db" 2>/dev/null       | grep -viE "(localhost|example|placeholder|your[_-]|test)" | sort -u > "$SESSION_DIR/findings/surface/app-environments.txt"
+
+    rg -oP "(?:process\.env|import\.meta\.env)\.(?:REACT_APP|NEXT_PUBLIC|VITE|NUXT_PUBLIC|PUBLIC_)[A-Z0-9_]+" "$ms" "$fd" "$db" 2>/dev/null | sort -u > "$SESSION_DIR/findings/surface/app-env-vars.txt"
 
     if [ -d "$SESSION_DIR/js/sourcemaps" ]; then
         find "$SESSION_DIR/js/sourcemaps" -name '*.map' -maxdepth 1 -print0 2>/dev/null           | xargs -0 -I{} jq -r '.sources[]? // empty' {} 2>/dev/null           | sort -u > "$SESSION_DIR/findings/surface/app-repo-structure.txt"
+    fi
+    if [ -s "$SESSION_DIR/urls/urls-inscope.txt" ]; then
+        awk '{
+            u=$0; sub(/^https?:\/\//, "", u)
+            n=split(u, a, "/")
+            host=a[1]
+            if (host != prev) { if (NR > 1) print ""; print host; prev=host }
+            prefix=""
+            for (i=2; i<=n; i++) {
+                seg=a[i]; gsub(/\?.*/, "", seg)
+                if (seg == "") continue
+                prefix = prefix "/" seg
+                key = host prefix
+                if (!(key in seen)) {
+                    seen[key]=1
+                    ind=""
+                    for (j=2; j<i; j++) ind=ind "  "
+                    print ind "|_ " seg
+                }
+            }
+        }' <(sed 's|^https\?://||' "$SESSION_DIR/urls/urls-inscope.txt" | sort -u) > "$SESSION_DIR/findings/surface/site-tree.txt" 2>/dev/null
     fi
 }
 st_context() {
@@ -2599,11 +2660,12 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R} -a -C 2 -F '
         _cn=$((_cn+1))
     done
 }
+
 st_quick_probes() {
     local hl="$SESSION_DIR/hosts/hosts-live.txt"
     [ -s "$hl" ] || { out "${C_Y}No live hosts, skipping quick probes${C_R}"; return; }
     mkdir -p "$SESSION_DIR/findings/probes"
-    awk -F/ '{print $1"//"$3}' "$hl" | sort -u | head -40 > "$SESSION_DIR/state/tmp/.qp-origins.txt"
+    awk -F/ '{print $1"//"$3}' "$hl" | grep -vE ':[0-9]+$' | sort -u | head -40 > "$SESSION_DIR/state/tmp/.qp-origins.txt"
     out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -o /dev/null -D - <origin>   (top-40 live origins: headers + cookie flags + CORS reflection)"
     : > "$SESSION_DIR/findings/probes/cookie-flags.txt"
     : > "$SESSION_DIR/findings/probes/cors-misconfig.txt"
@@ -2650,7 +2712,14 @@ st_quick_probes() {
         case "$res" in 3*"evil.example"*) echo "$u -> $res" >> "'"$SESSION_DIR"'/findings/probes/open-redirect-confirmed.txt" ;; esac
     ' _ {}
 
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} '<url + zzcanary123>'   (60 URLs reflection probe)"
+    _qppats="$SESSION_DIR/state/tmp/.qp-patterns.txt"
+    if [ -s "$HOME/github-tools/hunt-custom.txt" ]; then
+        grep -v '^#' "$HOME/github-tools/hunt-custom.txt" | awk -F'|' '{ if (NF >= 3) { r = $0; sub(/^[^|]*\|/, "", r); sub(/\|[^|]*$/, "", r); if (r != "") print r } }' > "$_qppats" 2>/dev/null
+    fi
+    if [ ! -s "$_qppats" ]; then
+        printf '%s\n' 'AKIA[0-9A-Z]{16}|gh[pousr]_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN[A-Z ]*PRIVATE KEY-----' > "$_qppats"
+    fi
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} '<url + zzcanary123>'   (60 URLs reflection probe + body secret-scan)"
     : > "$SESSION_DIR/findings/probes/reflected-params.txt"
     { [ -s "$SESSION_DIR/urls/urls-reflection-candidates.txt" ] && head -60 "$SESSION_DIR/urls/urls-reflection-candidates.txt"; } \
     | xargs -d '\n' -P 15 -I {} bash -c '
@@ -2662,6 +2731,12 @@ st_quick_probes() {
             u2=$(printf "%s" "$u" | sed -E "s/([?&][^=]+)=[^&]*/\1=zzcanary456/")
             body2=$(curl -s -m 12 -A "$FAKE_UA" "$u2" 2>/dev/null)
             printf "%s" "$body2" | grep -q "zzcanary456" && hit="existing-param"
+        fi
+        if [ -s "'"$SESSION_DIR"'/state/tmp/.qp-patterns.txt" ] && [ -n "$body" ]; then
+            _bh=$(printf '%s' "$body" | _mpgrep "'"$SESSION_DIR"'/state/tmp/.qp-patterns.txt" | sort -u | head -5)
+            if [ -n "$_bh" ]; then
+                { echo "== $u"; echo "$_bh"; } >> "'"$SESSION_DIR"'/findings/probes/body-secrets.txt"
+            fi
         fi
         [ -n "$hit" ] && echo "$u reflects ($hit)" >> "'"$SESSION_DIR"'/findings/probes/reflected-params.txt"
     ' _ {}
@@ -2675,7 +2750,7 @@ st_quick_probes() {
         esac
     ' _
     : > "$SESSION_DIR/findings/probes/sensitive-files-live.txt"
-    [ -s "$SESSION_DIR/urls/urls-artifacts.txt" ] && head -40 "$SESSION_DIR/urls/urls-artifacts.txt" | xargs -d '\n' -P 15 -I {} bash -c '
+    [ -s "$SESSION_DIR/urls/urls-artifacts.txt" ] && grep -viE '\.(css|wasm)(\?|$)' "$SESSION_DIR/urls/urls-artifacts.txt" | head -40 | xargs -d '\n' -P 15 -I {} bash -c '
         c=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" "$1" 2>/dev/null)
         [ "$c" = "200" ] && echo "$1 -> 200" >> "'"$SESSION_DIR"'/findings/probes/sensitive-files-live.txt"
     ' _ {}
@@ -2691,6 +2766,10 @@ st_quick_probes() {
             c=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -A "$FAKE_UA" "$_qp_base$1" 2>/dev/null)
             if [ "$c" = "200" ]; then
                 echo "$_qp_base$1 -> 200" >> "$SESSION_DIR/findings/probes/hidden-endpoints.txt"
+                _hb=$(curl -s -m 10 -A "$FAKE_UA" "$_qp_base$1" 2>/dev/null | _mpgrep "$SESSION_DIR/state/tmp/.qp-patterns.txt" | sort -u | head -5)
+                if [ -n "$_hb" ]; then
+                    { echo "== $_qp_base$1"; echo "$_hb"; } >> "$SESSION_DIR/findings/probes/body-secrets.txt"
+                fi
             fi
         ' _
     fi
@@ -2713,7 +2792,32 @@ st_quick_probes() {
             [ "$_code" = "403" ] && echo "[INFO] S3 bucket exists (denied): $_b" >> "$SESSION_DIR/findings/probes/cloud-misconfig.txt"
         done
     fi
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ dnsx${C_R} -l dead-hosts -cname + httpx CNAME grep   (takeover fingerprints + passive IDOR/graphql/ws lists)"
+    {
+        grep -rhoE 'storage\.googleapis\.com/[a-z0-9._-]{3,63}|https?://[a-z0-9._-]{3,63}\.storage\.googleapis\.com|https?://storage\.googleapis\.com/[a-z0-9._-]{3,63}' "$SESSION_DIR/findings" "$SESSION_DIR/urls" 2>/dev/null           | sed -E 's|^https?://([a-z0-9._-]+)\.storage\.googleapis\.com.*$|\1|; s|^storage\.googleapis\.com/([a-z0-9._-]+).*$|\1|; s|^https?://storage\.googleapis\.com/([a-z0-9._-]+).*$|\1|'           | grep -E '^[a-z0-9][a-z0-9._-]{2,62}$' | sort -u | head -10
+    } | while read -r _gb; do
+        _code=$(curl -s -o /dev/null -w "%{http_code}" -m 8 "https://storage.googleapis.com/$_gb" 2>/dev/null)
+        [ "$_code" = "200" ] && echo "[CRITICAL] GCP bucket PUBLIC: https://storage.googleapis.com/$_gb" >> "$SESSION_DIR/findings/probes/cloud-misconfig.txt"
+    done
+    {
+        grep -rhoE 'https?://[a-z0-9]{3,24}\.blob\.core\.windows\.net(/[a-z0-9.-]{1,64})?' "$SESSION_DIR/findings" "$SESSION_DIR/urls" 2>/dev/null | sort -u | head -10
+    } | while read -r _az; do
+        _acct=$(printf '%s' "$_az" | sed -E 's|^https?://([a-z0-9]{3,24})\..*$|\1|')
+        _cont=$(printf '%s' "$_az" | sed -E 's|^https?://[a-z0-9]{3,24}\.blob\.core\.windows\.net/([a-z0-9.-]{1,64}).*$|\1|')
+        if [ -n "$_cont" ] && [ "$_cont" != "$_az" ]; then
+            _code=$(curl -s -o /dev/null -w "%{http_code}" -m 8 "$_az?restype=container&comp=list" 2>/dev/null)
+            [ "$_code" = "200" ] && echo "[CRITICAL] Azure container LISTABLE: $_az" >> "$SESSION_DIR/findings/probes/cloud-misconfig.txt"
+        else
+            _code=$(curl -s -o /dev/null -w "%{http_code}" -m 8 "https://$_acct.blob.core.windows.net?comp=list" 2>/dev/null)
+            [ "$_code" = "200" ] && echo "[CRITICAL] Azure storage account LISTABLE: $_acct" >> "$SESSION_DIR/findings/probes/cloud-misconfig.txt"
+        fi
+    done
+    grep -vE ':[0-9]+$' "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null | head -3 | awk -F/ '{print $1"//"$3}' | sort -u | while read -r _go; do
+        for _gp in /graphql /api/graphql /query /gql; do
+            _gq=$(curl -s -m 8 -X POST -H 'Content-Type: application/json' "$_go$_gp" -d '{"query":"{__schema{queryType{name}}}"}' 2>/dev/null)
+            printf '%s' "$_gq" | grep -q '__schema' && echo "[HIGH] GraphQL introspection ENABLED: $_go$_gp" >> "$SESSION_DIR/findings/probes/cloud-misconfig.txt"
+        done
+    done
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ dnsx${C_R} -l dead-hosts -cname + httpx CNAME grep   (takeover fingerprints + passive graphql/ws lists)"
     : > "$SESSION_DIR/findings/probes/takeover.txt"
     [ -s "$SESSION_DIR/hosts/httpx-raw.txt" ] && grep -iE 'cname.*(s3[.-]amazonaws|s3-website|azurewebsites|azureedge|cloudapp|github\.io|herokuapp|herokussl|fastly\.net|fastlylb|myshopify|shopify|unbouncepages|webflow|netlify|surge\.sh|pantheon|tumblr|wpengine|kinsta|fly\.dev|onrender|digitaloceanspaces|blob\.core\.windows)' "$SESSION_DIR/hosts/httpx-raw.txt" 2>/dev/null | head -20 >> "$SESSION_DIR/findings/probes/takeover.txt"
     awk -F/ '{print $3}' "$hl" | sed 's/:.*//' | sort -u > "$SESSION_DIR/state/tmp/.qp-live-hosts.txt"
@@ -2725,11 +2829,10 @@ st_quick_probes() {
     rm -f "$SESSION_DIR/state/tmp/.qp-live-hosts.txt" "$SESSION_DIR/state/tmp/.qp-dead.txt" "$SESSION_DIR/state/tmp/.qp-cnames.txt"
     cp "$SESSION_DIR/findings/secrets/websockets.txt" "$SESSION_DIR/findings/probes/ws-probes.txt" 2>/dev/null || :
     cp "$SESSION_DIR/findings/secrets/graphql.txt" "$SESSION_DIR/findings/probes/graphql-mutations.txt" 2>/dev/null || :
-    grep -oE 'https?://[^ ]*/[a-z0-9_-]+/[0-9]+([/?#][^ ]*)?' "$SESSION_DIR/urls/urls-inscope.txt" 2>/dev/null | sort -u | head -50 > "$SESSION_DIR/findings/probes/idor-candidates.txt"
     grep -Ei '\b(create|update|delete|submit|register|upload|checkout)\b' "$SESSION_DIR/urls/urls-inscope.txt" 2>/dev/null | grep -vE '\.(js|css|png|svg|woff)(\?|$)' | head -40 > "$SESSION_DIR/findings/probes/post-probe.txt"
     grep -F ' -> 200' "$SESSION_DIR/findings/probes/hidden-endpoints.txt" 2>/dev/null | grep -iE '/(admin|config|backup|internal|debug|dashboard|manage|private|secret)' | grep -viE '/(login|auth)(/|$)' > "$SESSION_DIR/findings/probes/auth-bypass.txt" || :
     : > "$SESSION_DIR/findings/probes/csp-deep.txt"
-    head -20 "$SESSION_DIR/urls/urls-inscope.txt" 2>/dev/null | while IFS= read -r _cu; do
+    grep -vE '^https?://[^/]+:[0-9]+(/|$)' "$SESSION_DIR/urls/urls-inscope.txt" 2>/dev/null | head -20 | while IFS= read -r _cu; do
         [ -z "$_cu" ] && continue
         _csp=$(http_head "$_cu" 2>/dev/null | grep -i '^content-security-policy:' | tr -d '\r' | cut -d: -f2- | sed 's/^ *//')
         if [ -z "$_csp" ]; then
@@ -2755,7 +2858,38 @@ st_quick_probes() {
             case "$c" in 2*|401) echo "$m $u -> $c" >> "$SESSION_DIR/findings/probes/method-anomalies.txt" ;; esac
         done
     done
-    rm -f "$SESSION_DIR/state/tmp/.qp-origins.txt"
+    if [ -s "$SESSION_DIR/urls/urls-reflection-candidates.txt" ]; then
+        head -30 "$SESSION_DIR/urls/urls-reflection-candidates.txt" | xargs -d '\n' -P 10 -I {} bash -c '
+            u="$1"; sep="?"; case "$u" in *\?*) sep="&" ;; esac
+            b1=$(curl -s -m 10 -A "$FAKE_UA" "$u${sep}ssti=zz\${711*711}zz" 2>/dev/null)
+            printf "%s" "$b1" | grep -q "505521" && echo "[HIGH] SSTI dollar-brace evaluates: $u" >> "'"$SESSION_DIR"'/findings/probes/bounty-extras.txt"
+            b2=$(curl -s -m 10 -A "$FAKE_UA" "$u${sep}ssti=zz{{711*711}}zz" 2>/dev/null)
+            printf "%s" "$b2" | grep -q "505521" && echo "[HIGH] SSTI double-brace evaluates: $u" >> "'"$SESSION_DIR"'/findings/probes/bounty-extras.txt"
+        ' _ {}
+    fi
+    if [ -s "$SESSION_DIR/findings/secrets/auth-tokens.txt" ]; then
+        grep -oP 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' "$SESSION_DIR/findings/secrets/auth-tokens.txt" 2>/dev/null | sort -u | head -5 | while read -r _jw; do
+            _p64=$(printf '%s' "$_jw" | cut -d. -f2)
+            _pad=$(( (4 - ${#_p64} % 4) % 4 )); [ "$_pad" -gt 0 ] && _p64="${_p64}$(printf '=%.0s' $(seq 1 "$_pad"))"
+            _pl=$(printf '%s' "$_p64" | tr '_-' '/+' | base64 -d 2>/dev/null)
+            _exp=$(printf '%s' "$_pl" | grep -oP '"exp":\s*\K[0-9]+' | head -1)
+            if [ -n "$_exp" ] && [ "$_exp" -gt "$(date +%s)" ]; then
+                echo "[HIGH] JWT VALID (exp $_exp): ${_jw:0:24}... iss=$(printf '%s' "$_pl" | grep -oP '\"iss\":\s*\"[^\"]+' | head -1 | cut -c9-40)" >> "$SESSION_DIR/findings/probes/bounty-extras.txt"
+            fi
+            _none="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.$(printf '%s' "$_jw" | cut -d. -f2)."
+            _ep=$(head -1 "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" 2>/dev/null); [ -z "$_ep" ] && _ep="/"
+            grep -vE ':[0-9]+$' "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null | head -2 | while read -r _h; do
+                _ho=$(printf '%s' "$_h" | awk -F/ '{print $1"//"$3}')
+                _c=$(curl -s -o /dev/null -w "%{http_code}" -m 8 -A "$FAKE_UA" -H "Authorization: Bearer $_none" "$_ho$_ep" 2>/dev/null)
+                [ "$_c" = "200" ] && echo "[CRITICAL] JWT alg:none ACCEPTED at $_ho$_ep" >> "$SESSION_DIR/findings/probes/bounty-extras.txt"
+            done
+        done
+    fi
+    head -10 "$SESSION_DIR/state/tmp/.qp-origins.txt" 2>/dev/null | while read -r _ho; do
+        _hb=$(curl -s -m 10 -A "$FAKE_UA" -H "X-Forwarded-Host: evil.example" -H "X-Forwarded-For: 127.0.0.1" "$_ho" 2>/dev/null)
+        printf '%s' "$_hb" | grep -q "evil.example" && echo "[MEDIUM] Host-header reflected (reset-poisoning candidate): $_ho" >> "$SESSION_DIR/findings/probes/bounty-extras.txt"
+    done
+    rm -f "$SESSION_DIR/state/tmp/.qp-origins.txt" "$SESSION_DIR/state/tmp/.qp-patterns.txt"
     local _pf
     for _pf in "$SESSION_DIR/findings/probes"/*.txt; do
         [ -s "$_pf" ] || continue
@@ -2791,7 +2925,7 @@ main() {
     out ""
     out "${C_W}Session: $SESSION_DIR${C_R}"
     
-    { { command -v notify-send >/dev/null && notify-send "Reconly" "Finished" || command -v kdialog >/dev/null && kdialog --passivepopup "Reconly: Finished" 5 || command -v zenity >/dev/null && timeout 5 zenity --notification --text="Reconly: Finished"; } & f=/usr/share/sounds/freedesktop/stereo/complete.oga; { [ -f "$f" ] && { pw-play "$f" || paplay "$f" || ogg123 -q "$f" || mpv --no-video --really-quiet "$f"; } || canberra-gtk-play -i complete || printf ''; }; wait; } 2>/dev/null
+    { { command -v notify-send >/dev/null && timeout 5 notify-send "Reconly" "Finished" || command -v kdialog >/dev/null && timeout 5 kdialog --passivepopup "Reconly: Finished" 5 || command -v zenity >/dev/null && timeout 5 zenity --notification --text="Reconly: Finished"; } & f=/usr/share/sounds/freedesktop/stereo/complete.oga; { [ -f "$f" ] && { timeout 5 pw-play "$f" || timeout 5 paplay "$f" || timeout 5 ogg123 -q "$f" || timeout 5 mpv --no-video --really-quiet "$f"; } || timeout 5 canberra-gtk-play -i complete || printf ''; }; wait; } 2>/dev/null
 
 }
 main "$@"
