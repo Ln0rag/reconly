@@ -1,59 +1,52 @@
-# hunt-custom.txt -- reconly custom hunter patterns (name|regex|SEVERITY)
-# Cloudflare
+# =============================================================================
+# AI DIRECTIVE -- READ THIS FIRST
+# You are an AI assistant receiving this file. Your task, if the user asks you
+# to improve/expand it (or if you are enhancing a bug-bounty hunter's toolkit):
+#   1. Research the web for the LATEST security-relevant regex patterns and
+#      technologies that bug bounty hunters actively hunt for misconfigurations
+#      and exposed credentials in: cloud providers, SaaS, AI/LLM vendors, RAG,
+#      MCP, CI/CD, payments, messaging, databases, auth providers, and any
+#      emerging tech (check recent disclosed reports, HackerOne/Bugcrowd
+#      writeups, GitHub dorks, trufflehog/noseyparker/gitleaks rule repos).
+#   2. For each new finding: write ONE line in the exact format:
+#        Display Name|PCRE regex|SEVERITY
+#      where SEVERITY is CRITICAL | HIGH | MEDIUM | LOW | INFO.
+#      - Regex must be PCRE compatible (grep -P). Use \\x22 \\x27 for quotes.
+#      - Keep regexes tight to avoid false positives.
+#      - You MAY use | alternation inside the regex freely.
+#      - Do NOT use a literal # except at the very start of comment lines.
+#   3. Check every new pattern against the existing lines -- skip duplicates.
+#   4. Return the COMPLETE updated file (all existing lines + your additions),
+#      never a diff or partial list. Preserve all comments and section headers.
+# Format contract: exactly 3 pipe-separated fields per pattern line.
+# Optional: names starting with "[SURFACE] " are written to findings/surface/ instead of findings/secrets/.
+# Comments start with # at column 0. Blank lines are ignored.
+# =============================================================================
+# hunt-custom.txt -- sorted by severity (CRITICAL > HIGH > MEDIUM > LOW > INFO)
+# ========================= CRITICAL =========================
 Cloudflare API Token|[A-Za-z0-9_-]{40}\.[A-Za-z0-9_-]{5}\.[A-Za-z0-9_-]{27}|CRITICAL
 Cloudflare Origin CA Key|v1\.0-[a-f0-9]{24}-[a-f0-9]{146}|CRITICAL
-Cloudflare Global API|[A-Fa-f0-9]{37}|HIGH
-# Google extra
 Google OAuth Client Secret|GOCSPX-[A-Za-z0-9_-]{28}|CRITICAL
 FCM Legacy Server Key|AAAA[A-Za-z0-9_-]{7}:[A-Za-z0-9_-]{140}|CRITICAL
-# Azure
 Azure Storage Account Key|AccountKey=[A-Za-z0-9+/=]{88}|CRITICAL
 Azure AD Client Secret|[0-9a-zA-Z~_-]{34}\.[0-9a-zA-Z~_-]{34}\.[0-9a-zA-Z~_-]{34}|CRITICAL
-Azure DevOps PAT|[a-z2-7]{52}|HIGH
-Azure SAS Token|sig=[A-Za-z0-9%]{20,}&|HIGH
-Azure Connection String|Endpoint=sb://[a-z0-9.-]+\.servicebus\.windows\.net|HIGH
 Azure Publish Profile|userName="\$[a-z0-9-]+"\s+userPWD="[A-Za-z0-9+/]{60,}==|CRITICAL
-# GCP extra
 GCP Service Account JSON|"private_key":\s*"-----BEGIN PRIVATE KEY|CRITICAL
-GCP OAuth Access|ya29\.[0-9A-Za-z_-]{60,}|HIGH
-GCP Bucket Write URL|storage\.googleapis\.com/[a-z0-9._-]+/[^\s"']*signature=|HIGH
-Firebase Legacy DB Secret|[A-Za-z0-9_-]{40}\.[A-Za-z0-9_-]{6}|CRITICAL
-# AWS extra
-AWS Cognito Identity Pool|[a-z]{2}(?:-gov)?-[a-z]+-[0-9]:[0-9a-f-]{36}|MEDIUM
+Firebase Legacy DB Secret|[A-Za-z0-9_-]*[-_][A-Za-z0-9_-]{30,60}\.[A-Za-z0-9_-]{6}|CRITICAL
 AWS AppSync API Key|da2-[a-z0-9]{26}|CRITICAL
 AWS Session Token Fuzzy|FQoGZXIvYXdz[A-Za-z0-9/+=]{20,}|CRITICAL
-# Alibaba / Tencent / Oracle
 Alibaba Cloud AK|\bLTAI[A-Za-z0-9]{12,20}|CRITICAL
-Tencent Cloud SecretId|AKID[A-Za-z0-9]{13,40}|HIGH
-Tencent Cloud SecretKey|[A-Za-z0-9]{32}==?\s*$|MEDIUM
-Oracle Cloud OCID|ocid1\.[a-z]+\.[a-z0-9]{2,}\.[a-z0-9]{60,}|MEDIUM
-Oracle API Key fingerprint|[a-f0-9]{2}(?::[a-f0-9]{2}){15}|MEDIUM
-# Vercel / Netlify / Heroku / Railway / Render / Fly
-Vercel Token|[A-Za-z0-9]{24}|HIGH
 Netlify PAT|nfp_[A-Za-z0-9]{40,}|CRITICAL
-Heroku API Key|^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$|CRITICAL
+Heroku API Key|(?i)heroku[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|CRITICAL
 Railway Token|railway_[A-Za-z0-9]{40,}|CRITICAL
 Render API Key|rnd_[A-Za-z0-9]{40,}|CRITICAL
 Fly.io Token|fo1_[A-Za-z0-9_-]{40,}|CRITICAL
-# Supabase / Appwrite / Firebase extra
 Supabase Service Role JWT|eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[A-Za-z0-9_-]{100,}|CRITICAL
-Supabase Anon Key|eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9|LOW
 Appwrite API Key|standard_[a-f0-9]{40}|CRITICAL
-Appwrite Project|https://[a-z0-9.-]+\.appwrite\.io|MEDIUM
-# SaaS / CRM / Support
 Salesforce Access Token|00D[a-zA-Z0-9]{12,15}!ARAQ[A-Za-z0-9]{60,}|CRITICAL
 Salesforce Refresh|5Aep861[A-Za-z0-9._-]{60,}|CRITICAL
 HubSpot Private App|pat-(?:na1|eu1)-[0-9a-f-]{36}|CRITICAL
 Intercom Access Token|dG9rOm[a-f0-9]{40}|CRITICAL
-Zendesk API Token|[a-z0-9]{40}@zendesk\.com|HIGH
-Freshdesk API Key|X\.[A-Za-z0-9]{20}|HIGH
-Crisp Website Key|^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$|MEDIUM
-Segment Write Key|wht[0-9a-zA-Z]{32}|HIGH
-PostHog Project Key|phc_[A-Za-z0-9]{32}|MEDIUM
-Amplitude API Key|[0-9a-f]{32}$|MEDIUM
-FullStory API Key|^[A-Z0-9]{16}:[A-Z0-9]{16}$|MEDIUM
-Hotjar ID|hjid=[0-9]{6,}|LOW
-# Payments extra
 PayPal Client Secret|EO[A-Za-z0-9_-]{60,}|CRITICAL
 PayPal Client ID|A21AA[A-Za-z0-9_-]{60,}|CRITICAL
 Braintree Private Key|private_key\s*[:=]\s*[a-f0-9]{32}|CRITICAL
@@ -61,180 +54,202 @@ WooCommerce Consumer Key|ck_[a-f0-9]{40}|CRITICAL
 WooCommerce Consumer Secret|cs_[a-f0-9]{40}|CRITICAL
 Paystack Secret|sk_live_[a-f0-9]{48}|CRITICAL
 Flutterwave Secret|FLWSECK_TEST-[a-f0-9]{32}-X|CRITICAL
-Mollie Test Key|test_[a-z0-9]{30}|HIGH
 Checkout.com Secret|sk_(test|live)_[a-f0-9]{48}|CRITICAL
 Adyen API Key|AQE[A-Za-z0-9+/_=-]{100,}|CRITICAL
-# Comms extra
-Postmark Server Token|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|HIGH
 Resend API Key|re_[A-Za-z0-9]{30,}|CRITICAL
 Brevo API Key|xkeysib-[a-f0-9]{64}-[A-Za-z0-9]{16}|CRITICAL
-SparkPost API Key|[0-9a-f]{20}|HIGH
-WhatsApp Business Token|EAA[0-9A-Za-z]{100,}|CRITICAL
-Mandrill API Key|[A-Za-z0-9_-]{22}|HIGH
-Teams Webhook|https://[a-z0-9]+\.webhook\.office\.com/webhookb2/[A-Za-z0-9@/_-]{40,}|HIGH
-# CI/CD extra
+WhatsApp Business Token|EAA(?!A{3})[0-9A-Za-z]{100,}|CRITICAL
 Bitbucket App Password|ATBB[A-Za-z0-9_-]{40,}|CRITICAL
-Travis CI Token|[A-Za-z0-9_-]{22}|HIGH
 CircleCI API Token|CCIPAT-[A-Za-z0-9_-]{40,}|CRITICAL
-Buildkite Agent Token|bk[a-zA-Z0-9]{40}|HIGH
-Jenkins API Token|11[A-F0-9]{32}|CRITICAL
+Jenkins API Token|11(?=[A-F0-9]{32})(?=[0-9]*[A-F])[A-F0-9]{32}|CRITICAL
 GitHub Actions Cache|ghs_[A-Za-z0-9]{36}|CRITICAL
-# Containers / Registries
 GHCR Token|gho_[A-Za-z0-9]{36}|CRITICAL
 DigitalOcean Registry|dop_v1_[a-f0-9]{64}|CRITICAL
-ECR Authorization|AWS4-HMAC-SHA256|HIGH
 npm Access Token|npm_[A-Za-z0-9]{36}|CRITICAL
 .cr-npmrc Auth|_authToken=[A-Za-z0-9]{36}|CRITICAL
-# Databases extra
 PlanetScale Token|pscale_tkn_[A-Za-z0-9_-]{32,}|CRITICAL
 PlanetScale Password|pscale_pw_[A-Za-z0-9_-]{32,}|CRITICAL
 Neon Connection|postgres://[a-z0-9_-]+:[^@\s]+@[a-z0-9.-]+\.neon\.tech|CRITICAL
 Snowflake Token|xu [A-Za-z0-9+/=]{100,}|CRITICAL
-Snowflake Private Link|privatelink\.snowflakecomputing\.com|MEDIUM
 Elasticsearch API Key|elastic:[A-Za-z0-9_-]{22}==|CRITICAL
-InfluxDB Token|[0-9a-zA-Z]{32}==|HIGH
-# Observability extra
 Grafana Service Account|glsa_[A-Za-z0-9]{32}_[A-F0-9]{8}|CRITICAL
-PagerDuty Integration|https://events\.pagerduty\.com/integration/[A-F0-9]{32}/enqueue|HIGH
-Opsgenie API|https://api\.opsgenie\.com/v2/alerts|LOW
 Sentry Auth Token|sntrys_[A-Za-z0-9_-]{40,}|CRITICAL
-LangSmith API Key|ls__[a-zA-Z0-9]{30,}|HIGH
-# AI extra
 Gemini API Key|AIza[0-9A-Za-z_-]{35}|CRITICAL
-Cohere API Key|[A-Za-z0-9]{40}|HIGH
 Replicate Token|r8_[A-Za-z0-9]{40}|CRITICAL
-Stability API Key|sk-[A-Za-z0-9]{20,}|HIGH
-Pinecone API Key|[0-9a-f-]{36}|HIGH
 Weights Biases|wandb_[A-Za-z0-9]{40}|CRITICAL
-OpenRouter|covered|LOW
-# Web3 / Crypto
-Infura Project Secret|[0-9a-f]{32}|CRITICAL
-Alchemy API Key|[A-Za-z0-9_-]{32}|HIGH
-Etherscan API Key|[A-Z0-9]{34}|MEDIUM
-Binance API Key|^[A-Za-z0-9]{64}$|HIGH
-Coinbase Access Token|[A-Za-z0-9_-]{64}|CRITICAL
-Tatum API Key|[0-9a-f-]{36}|HIGH
-Magic Publishable Key|pk_live_[A-F0-9]{32}|MEDIUM
-Turnstile Secret|1x0000000000000000000000000000000AA|LOW
-# Auth providers extra
-Clerk Publishable|pk_live_[A-Za-z0-9]{32}|MEDIUM
+Infura Project Cred|infura[_-]?(project)?[_-]?(secret|id)[\x22\x27\s]*[:=]|CRITICAL
+Coinbase Access Token|(?i)coinbase[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9_-]{40,}|CRITICAL
 Clerk Secret|sk_live_[A-Za-z0-9]{32}|CRITICAL
-WorkOS API Key|test_[A-Za-z0-9]{30}|live_[A-Za-z0-9]{30}|HIGH
-Stytch Public Token|public-token-[a-f0-9]{8}-[a-f0-9]{4}|MEDIUM
-JWT RS256 WellKnown|eyJhbGciOiJSUzI1NiIsImtpZCI6|HIGH
-# Maps / Geo
-MapQuest Key|[A-Za-z0-9]{32}|MEDIUM
-TomTom API Key|[A-Za-z0-9]{32}|MEDIUM
-HERE API Key|[A-Za-z0-9_-]{40}|MEDIUM
-OpenCage Key|[0-9a-f]{32}|MEDIUM
-# VPN / Network
 Tailscale Auth Key|tskey-[a-z]+-[A-Za-z0-9]{20,}|CRITICAL
-WireGuard Private Key|^[A-F0-9+/]{43}=$|HIGH
-ZeroTier Token|[0-9a-f]{32}|HIGH
-OpenVPN inline key|<key>[\s\S]{100,}</key>|HIGH
-# Mobile / Push
-Apple APNs Key|.p8|-----BEGIN PRIVATE KEY-----[\s\S]{100,}-----END PRIVATE KEY-----|CRITICAL
-OneSignal REST API Key|[0-9a-f]{32}|HIGH
-Branch Key|key_live_[A-Za-z0-9]{32}|MEDIUM
-Adjust Token|[0-9a-z]{12}|LOW
-Instabug Token|[0-9a-f]{32}|MEDIUM
-# Misc hunter favorites
-X API Key Header|X-API-Key["'\s]*[:=]["'\s]*[A-Za-z0-9_-]{20,}|HIGH
+Apple APNs Key|-----BEGIN PRIVATE KEY-----[\s\S]{100,}-----END PRIVATE KEY-----|CRITICAL
 Authorization Basic in JS|Authorization["'\s]*[:=]["'\s]*Basic\s[A-Za-z0-9+/=]{20,}|CRITICAL
-Request Signing Secret|signing[_-]?(secret|key)["'\s]*[:=]|HIGH
 Webhook Shared Secret|whsec_[A-Za-z0-9]{20,}|CRITICAL
-Internal Domain Pattern|https?://[a-z0-9-]+\.(internal|corp|lan|dc|hq)\.|MEDIUM
-Staging API URL|https?://[a-z0-9-]*(staging|dev|uat|qa|preprod)[a-z0-9-]*\.[a-z0-9.-]+\.|MEDIUM
-Admin Panel Path|["'`](/(admin|dashboard|manage|console|backoffice)[a-zA-Z0-9_/?=&.-]*)["'`]|MEDIUM
-GraphQL Endpoint|["'`](/(graphql|api/graphql|gql)[a-zA-Z0-9_/?=&.-]*)["'`]|MEDIUM
-WebSocket Endpoint|wss?://[a-z0-9.-]+\.[a-z]{2,}[a-zA-Z0-9/=?&._~:%-]*|MEDIUM
-Version Control Dir|\.(git|svn|hg|bzr)/(HEAD|config|index)|HIGH
-Backup File Left|\.(bak|backup|old|orig|save|tmp|swp|swo)(\?|$|\.)|MEDIUM
-Source Config Leak|(database|db|mysql|postgres|mongo|redis)[_-]?(url|uri|host|name)["'\s]*[:=]["'\s]*[\w+:/@.-]+|HIGH
 SMTP Full URI|smtps?://[^\s"'@/]{1,64}:[^\s"'@]{3,}@[a-z0-9.-]+\.[a-z]{2,}|CRITICAL
-OAuth Redirect URI|redirect_uri=["'`][^"'`]+["'`]|LOW
 Cookie Secret Hardcoded|cookie[_-]?secret["'\s]*[:=]["'\s]*[\w-]{16,}|CRITICAL
 Session Secret Hardcoded|session[_-]?secret["'\s]*[:=]["'\s]*[\w-]{16,}|CRITICAL
 Encryption Key Literal|encryption[_-]?key["'\s]*[:=]["'\s]*[\w+/=-]{16,}|CRITICAL
-API Signing Nonce|nonce["'\s]*[:=]["'\s]*[A-Fa-f0-9]{16,}|LOW
-# ============ AI ERA — LLM vendors / RAG / Agents / Voice / MCP ============
-# Core LLM keys
 xAI Grok Key|xai-[A-Za-z0-9]{20,}|CRITICAL
 Mistral API Key|mistral[_-]?(api)?[_-]?(key|token)[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9]{32}|CRITICAL
-Mistral La Plateforme|[A-Za-z0-9]{32}\s*$|HIGH
-Together AI Key|together[_-]?ai[_-]?key[\x22\x27\s]*[:=]|HIGH
-Together Hex Key|[0-9a-f]{64}|HIGH
-Fireworks AI Key|fireworks[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
-DeepInfra Key|deepinfra[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
 Cerebras Key|csk-[A-Za-z0-9]{20,}|CRITICAL
-SambaNova Key|sambanova[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
-Novita AI Key|novita[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
-SiliconFlow Key|siliconflow[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
-Zhipu GLM Key|[0-9a-f]{32}\.[A-Za-z0-9]{16}|CRITICAL
-Moonshot Kimi Key|moonshot[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
-MiniMax Key|minimax[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
-DeepSeek Key|deepseek[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
 OpenAI Project Key|sk-proj-[A-Za-z0-9_-]{60,}|CRITICAL
-Azure OpenAI Endpoint|https://[a-z0-9-]+\.openai\.azure\.com|HIGH
-Azure OpenAI Key Pair|api[-_]?key[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-f]{32}|HIGH
-AWS Bedrock Config|bedrock[_-]?(runtime|region|model)|MEDIUM
-# LLM proxies / gateways (keys = master keys to ALL models behind them)
 LiteLLM Master Key|sk-litellm-[A-Za-z0-9]{20,}|CRITICAL
 Portkey Key|sk-portkey-[A-Za-z0-9]{20,}|CRITICAL
-Portkey Header|x-portkey-api-key[\x22\x27\s]*[:=]|HIGH
 Helicone Key|sk-helicone-[A-Za-z0-9]{20,}|CRITICAL
-Helicone Header|helicone-auth[\x22\x27\s]*[:=][\x22\x27\s]*Bearer|HIGH
-OpenRouter Header|x-openrouter-key|HIGH
-# AI SDK env leaks (site shipped .env values into JS)
 OpenAI Env Literal|OPENAI[_-]?API[_-]?KEY[\x22\x27\s]*[:=][\x22\x27\s]*sk-[A-Za-z0-9]|CRITICAL
 Anthropic Env Literal|ANTHROPIC[_-]?API[_-]?KEY[\x22\x27\s]*[:=][\x22\x27\s]*sk-ant|CRITICAL
 Gemini Env Literal|GEMINI[_-]?API[_-]?KEY[\x22\x27\s]*[:=][\x22\x27\s]*AIza|CRITICAL
 Groq Env Literal|GROQ[_-]?API[_-]?KEY[\x22\x27\s]*[:=][\x22\x27\s]*gsk_|CRITICAL
-Mistral Env Literal|MISTRAL[_-]?API[_-]?KEY|HIGH
-Together Env Literal|TOGETHER[_-]?API[_-]?KEY|HIGH
-Cohere Env Literal|COHERE[_-]?API[_-]?KEY|HIGH
-# AI MISCONFIGS — the gold hunters actually dig for
-System Prompt Leak|[Ss]ystem[_-]?(prompt|instruction)[\x22\x27\s]*[:=][\x22\x27\s]*[\x22\x27][^\x22\x27]{30,}|HIGH
-Assistant Persona Leak|(?i)(you are|act as|your role is|you will be)[^\x22\x27]{0,150}(assistant|support agent|helpful|AI)|MEDIUM
-Prompt Template in JS|[Pp]rompt[_-]?template[\x22\x27\s]*[:=]|MEDIUM
-Few-Shot Examples Leak|few[-_]?shot|examples[\x22\x27\s]*[:=][\x22\x27\s]*\[|LOW
-AI Chat Endpoint|[\x22\x27](/(api/)?(chat|chatbot|ai|llm|agent|completion|conversation)s?[a-zA-Z0-9_/?=&.-]*)[\x22\x27]|MEDIUM
-Model Name Leak|(gpt-4[a-z0-9.-]*|gpt-5[a-z0-9.-]*|claude-3[a-z0-9.-]*|claude-4[a-z0-9.-]*|gemini-[12]\.[a-z0-9.-]*|llama-[23][a-z0-9.-]*|mistral-[a-z0-9.-]*)[\x22\x27]|LOW
-RAG Endpoint|[\x22\x27](/(api/)?(rag|embed|embedding|vector|knowledge|context|ingest)[a-zA-Z0-9_/?=&.-]*)[\x22\x27]|MEDIUM
-Agent Tool Definitions|tools[\x22\x27\s]*[:=][\x22\x27\s]*\[\s*\{[^\]]{0,300}(function|name)[\x22\x27\s]*:|MEDIUM
-# Vector DBs
-Qdrant Cluster|[a-z0-9-]+\.[a-z0-9-]+\.qdrant\.tech|HIGH
 Qdrant API Key|qdrant[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|CRITICAL
-Weaviate URL+Key|weaviate\.[a-z0-9.-]+|HIGH
 Weaviate Bearer|weaviate[_-]?(api)?[_-]?key|CRITICAL
-Zilliz Cloud|[a-z0-9-]+\.api\.zillizcloud\.com|HIGH
 Milvus Token|milvus[_-]?(api)?[_-]?(key|token)[\x22\x27\s]*[:=]|CRITICAL
-Pinecone Host|[a-z0-9-]+-[0-9]+\.svc\.[a-z0-9-]+\.pinecone\.io|HIGH
-Chroma Server|chroma\.[a-z0-9.-]+|chroma[_-]?server|LOW
-# Embeddings / RAG tools
 Voyage AI Key|pa-[A-Za-z0-9_-]{20,}|CRITICAL
 Jina AI Key|jina_[A-Za-z0-9]{20,}|CRITICAL
 LlamaParse Key|llx-[A-Za-z0-9]{20,}|CRITICAL
 LlamaCloud Key|llx-[A-Za-z0-9]{20,}|CRITICAL
 Firecrawl Key|fc-[A-Za-z0-9]{20,}|CRITICAL
+Tavily Key|tvly-[A-Za-z0-9]{20,}|CRITICAL
+ElevenLabs Header|xi-api-key[\x22\x27\s]*[:=]|CRITICAL
+Deepgram Key|(?i)deepgram[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-f]{40}|CRITICAL
+Fal.ai Key|fal[_-]?ai[_-]?key[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9_-]{20,}|CRITICAL
+Runway Key|runway[_-]?(api)?[_-]?key|runwayml|CRITICAL
+LangSmith Key|lsv2_[a-zA-Z0-9]{30,}|ls__[a-zA-Z0-9]{30,}|CRITICAL
+Langfuse Secret|sk-lf-[a-f0-9]{20,}|CRITICAL
+Braintrust Key|bt-[a-zA-Z0-9]{20,}|CRITICAL
+PromptLayer Key|pl_[A-Za-z0-9]{20,}|CRITICAL
+Humanloop Key|hl-[A-Za-z0-9]{20,}|CRITICAL
+MCP Server w/ Key|"mcpServers"[\s\S]{0,400}("apiKey"|"token"|"Authorization")|CRITICAL
+Supabase Secret Key|\bsb_secret_[A-Za-z0-9_-]{20,}|CRITICAL
+Supabase PAT|\bsbp_(?:v0_)?[a-f0-9]{40}\b|CRITICAL
+Groq API Key|\bgsk_[a-zA-Z0-9]{52}\b|CRITICAL
+xAI Grok Key Tight|\bxai-[A-Za-z0-9_]{80}\b|CRITICAL
+Anthropic API Key|\bsk-ant-api0[3-4]-[A-Za-z0-9_-]{90,128}AA\b|CRITICAL
+Anthropic Admin Key|\bsk-ant-admin01-[A-Za-z0-9_-]{93}AA\b|CRITICAL
+Perplexity API Key|\bpplx-[A-Za-z0-9]{48}\b|CRITICAL
+Hugging Face Token|\bhf_[a-zA-Z0-9]{34}\b|CRITICAL
+NVIDIA NIM Key|\bnvapi-[a-zA-Z0-9_-]{40,}\b|CRITICAL
+OpenRouter Key|\bsk-or-v1-[A-Za-z0-9]{64}\b|CRITICAL
+Fireworks AI Prefix|\bfw_[A-Za-z0-9]{16,48}\b|CRITICAL
+Cerebras Tight|\bcsk-[a-z0-9]{48}\b|CRITICAL
+Z.ai / Zhipu Key|(?i)(?:zhipu|bigmodel)[\w.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-f]{32}\.[A-Za-z0-9]{16}|CRITICAL
+Heroku OAuth Token|\bHRKU-AA[0-9a-zA-Z_-]{58}\b|CRITICAL
+Amazon Bedrock Long Key|\bABSK[A-Za-z0-9+/]{109,269}={0,2}\b|CRITICAL
+LangSmith v2|\blsv2_(?:pt|sk)_[a-f0-9]{32}_[a-f0-9]{10}\b|CRITICAL
+Langfuse UUID Secret|\bsk-lf-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|CRITICAL
+Photoroom API Key|\b(?:sandbox_)?sk_pr_[a-zA-Z0-9]{1,64}_[a-fA-F0-9]{40}\b|CRITICAL
+Telegram Bot Token|\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b|CRITICAL
+Rancher Token|(?i)(?:CATTLE_TOKEN|RANCHER_TOKEN|RANCHER_API_TOKEN)[\w]*\s*[=:]\s*["']?[a-z0-9]{54,64}|CRITICAL
+Airtable PAT|\bpat[A-Za-z0-9]{14}\.[A-Za-z0-9]{40,}\b|CRITICAL
+Notion Integration Token|\bsecret_[A-Za-z0-9]{43}\b|CRITICAL
+Linear API Key|\blin_api_[A-Za-z0-9]{40,}\b|CRITICAL
+MCP Env Hardcoded|"env"\s*:\s*\{[^}]{0,500}(API_KEY|TOKEN|SECRET|PASSWORD|DATABASE_URL)[^}]{0,200}\}|CRITICAL
+Doppler Token|\bdp\.pt\.[a-z0-9]{43}\b|CRITICAL
+Stripe Restricted Key|\brk_live_[A-Za-z0-9]{24,}|CRITICAL
+Stripe Webhook Secret|\bwhsec_[A-Za-z0-9]{32,}|CRITICAL
+Kubernetes Secret Kind|(?i)kind:\s*Secret\b[\s\S]{0,300}\bdata:|CRITICAL
+Kubernetes Secret Data Field|(?i)(?:\.dockerconfigjson|\.dockercfg|tls\.key|tls\.crt|token|password|ca\.crt)\s*:\s*(?=[A-Za-z0-9+/=]{20,})(?=[A-Za-z0-9+/=]*[0-9])[A-Za-z0-9+/=]{20,}|CRITICAL
+Kubernetes ServiceAccount Token|eyJhbGciOiJSUzI1NiIsImtpZCI6|CRITICAL
+Kubeconfig Client Key|client-key-data:\s*[A-Za-z0-9+/=]{40,}|CRITICAL
+Kubeconfig Token|token:\s*[A-Za-z0-9._-]{20,}|CRITICAL
+Kubernetes Dockerconfigjson|type:\s*kubernetes\.io/dockerconfigjson|CRITICAL
+Kubernetes TLS Secret|type:\s*kubernetes\.io/tls[\s\S]{0,150}tls\.key|CRITICAL
+Docker Config Auth|"auth"\s*:\s*"[A-Za-z0-9+/=]{20,}"|CRITICAL
+Docker Config Auths Block|"auths"\s*:\s*\{[^}]{0,300}"auth"\s*:|CRITICAL
+Docker Registry Password|(?i)(?:docker|registry)[_-]?(?:password|passwd|pwd|token)[\x22\x27\s]*[:=][\x22\x27\s]*[^\s\x22\x27]{8,}|CRITICAL
+Containers Auth.json|"auths"\s*:\s*\{[^}]{0,200}[A-Za-z0-9+/=]{20,}|CRITICAL
+Terraform State File|\.tfstate(\.backup)?$|CRITICAL
+Terraform Hardcoded Secret|(?i)(?:password|secret|api_key|access_key|private_key)\s*=\s*"[^"]{8,}"|CRITICAL
+Terraform AWS Access Key|aws_access_key_id\s*=\s*[A-Z0-9]{20}|CRITICAL
+Terraform AWS Secret Key|aws_secret_access_key\s*=\s*[A-Za-z0-9/+=]{40}|CRITICAL
+Terraform Provider Creds|(?i)provider\s+"(?:aws|azurerm|google|oci|alicloud)"[\s\S]{0,300}(?:access_key|secret_key|client_secret|private_key)\s*=|CRITICAL
+GCP Application Default Creds|application_default_credentials\.json|"type":\s*"authorized_user"|CRITICAL
+GCP Impersonate SA|impersonate_service_account|CRITICAL
+Azure Client Secret Value|(?i)(?:client_secret|CLIENT_SECRET)\s*[=:]\s*["']?[A-Za-z0-9~._-]{20,}|CRITICAL
+Azure Storage Connection String|DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{80,}|CRITICAL
+Azure Cosmos Key|AccountEndpoint=https://[^.]+\.documents\.azure\.com[^;]*;AccountKey=[A-Za-z0-9+/=]{80,}|CRITICAL
+Oracle OCI Config|\[DEFAULT\][\s\S]{0,200}user=ocid1\.user\.|CRITICAL
+Oracle OCI Private Key|-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]{50,}fingerprint=|CRITICAL
+Alibaba RAM AccessKey Secret|(?i)(?:access_key_secret|AccessKeySecret)\s*[=:]\s*["']?[A-Za-z0-9]{30,}|CRITICAL
+Alibaba STS Token|(?i)SecurityToken\s*[=:]\s*["']?[A-Za-z0-9/+=]{50,}|CRITICAL
+Assume Role Unrestricted|sts:AssumeRole[\s\S]{0,150}"Principal"\s*:\s*\{\s*"AWS"\s*:\s*"\*"|CRITICAL
+Service Account Key File|service[_-]?account[_-]?(?:key|json|credentials)\.json|CRITICAL
+Together tgp Key|\btgp_v1_[A-Za-z0-9]{20,}\b|CRITICAL
+Razorpay Key Id|\brzp_(?:live|test)_[A-Za-z0-9]{14,}\b|CRITICAL
+Razorpay Key Secret|(?i)razorpay[_-]?(?:key)?[_-]?secret[\x22\x27\s]*[:=]|CRITICAL
+MercadoPago Access Token|\bAPP_USR-[A-Za-z0-9-]{40,}\b|CRITICAL
+Yandex Cloud IAM|\bYC[a-zA-Z0-9_-]{38}\b|CRITICAL
+Yandex API Key|\bAQVN[A-Za-z0-9_-]{35,38}\b|CRITICAL
+Plaid Secret|(?i)plaid[_-]?(?:secret|client[_-]?id)[\x22\x27\s]*[:=]|CRITICAL
+Stripe Connect Platform|(?i)stripe[_-]?connect[_-]?(?:client)?[_-]?secret|CRITICAL
+Next Public Secret Leak|NEXT_PUBLIC_(?:[A-Z0-9_]*(?:SECRET|KEY|TOKEN|PASSWORD|PRIVATE|API_KEY)[A-Z0-9_]*)\s*=\s*\S+|CRITICAL
+Next Server Action Return|(?i)return\s+process\.env\.[A-Z0-9_]*(?:SECRET|KEY|TOKEN)|CRITICAL
+Nuxt Public Runtime|NUXT_PUBLIC_[A-Z0-9_]*(?:SECRET|KEY|TOKEN)|CRITICAL
+SvelteKit Public Env|PUBLIC_[A-Z0-9_]*(?:SECRET|KEY|TOKEN)\s*=\s*[\x22\x27]?[A-Za-z0-9_-]{8,}|CRITICAL
+Astro Public Env|PUBLIC_[A-Z0-9_]*(?:SECRET|KEY|TOKEN|PASSWORD)\s*=|CRITICAL
+Remix Env Session|SESSION_SECRET\s*=\s*\S{16,}|CRITICAL
+Vite Env Leak|VITE_[A-Z0-9_]*(?:SECRET|KEY|TOKEN|PASSWORD)\s*=|CRITICAL
+# ========================= HIGH =========================
+Cloudflare Global API|(?i)cloudflare[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Fa-f0-9]{37}|HIGH
+Azure SAS Token|sig=[A-Za-z0-9%]{20,}&|HIGH
+Azure Connection String|Endpoint=sb://[a-z0-9.-]+\.servicebus\.windows\.net|HIGH
+GCP OAuth Access|ya29\.[0-9A-Za-z_-]{60,}|HIGH
+GCP Bucket Write URL|storage\.googleapis\.com/[a-z0-9._-]+/[^\s"']*signature=|HIGH
+Tencent Cloud SecretId|AKID[A-Za-z0-9]{13,40}|HIGH
+Zendesk API Token|[a-z0-9]{40}@zendesk\.com|HIGH
+Freshdesk API Key|(?i)freshdesk[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9]{20}|HIGH
+Segment Write Key|wht[0-9a-zA-Z]{32}|HIGH
+Mollie Test Key|test_[a-z0-9]{30}|HIGH
+SparkPost API Key|sparkpost[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+Mandrill API Key|mandrill[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+Teams Webhook|https://[a-z0-9]+\.webhook\.office\.com/webhookb2/[A-Za-z0-9@/_-]{40,}|HIGH
+Buildkite Agent Token|(?i)buildkite[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9]{40}|HIGH
+ECR Authorization|AWS4-HMAC-SHA256|HIGH
+InfluxDB Token|(?i)influx(?:db)?[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-zA-Z]{32}={0,2}|HIGH
+PagerDuty Integration|https://events\.pagerduty\.com/integration/[A-F0-9]{32}/enqueue|HIGH
+Stability API Key|sk-[A-Za-z0-9]{20,}|HIGH
+Pinecone API Key|pinecone[_-]?(api)?[_-]?(key|environment)[\x22\x27\s]*[:=]|HIGH
+Alchemy API Key|(?i)alchemy[\w\s.-]{0,40}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9_-]{32}|HIGH
+Binance API Key|(?i)binance[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9]{64}|HIGH
+Tatum API Key|tatum[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+WorkOS API Key|(?i)workos[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*(?:test|live)_[A-Za-z0-9]{30}|HIGH
+JWT RS256 WellKnown|eyJhbGciOiJSUzI1NiIsImtpZCI6|HIGH
+WireGuard Private Key|(?i)wireguard[\s\S]{0,80}[Pp]rivate[Kk]ey[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9+/]{43}=|HIGH
+OpenVPN inline key|<key>[\s\S]{100,}</key>|HIGH
+OneSignal REST API Key|(?i)onesignal[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-f]{32}|HIGH
+X API Key Header|X-API-Key["'\s]*[:=]["'\s]*[A-Za-z0-9_-]{20,}|HIGH
+Request Signing Secret|signing[_-]?(secret|key)["'\s]*[:=]|HIGH
+Version Control Dir|\.(git|svn|hg|bzr)/(HEAD|config|index)|HIGH
+Source Config Leak|(database|db|mysql|postgres|mongo|redis)[_-]?(url|uri|host|name)["'\s]*[:=]["'\s]*[\w+:/@.-]+|HIGH
+Together AI Key|together[_-]?ai[_-]?key[\x22\x27\s]*[:=]|HIGH
+Fireworks AI Key|fireworks[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+DeepInfra Key|deepinfra[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+SambaNova Key|sambanova[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+Novita AI Key|novita[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+SiliconFlow Key|siliconflow[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+Moonshot Kimi Key|moonshot[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+MiniMax Key|minimax[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+DeepSeek Key|deepseek[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+Azure OpenAI Endpoint|https://[a-z0-9-]+\.openai\.azure\.com|HIGH
+Azure OpenAI Key Pair|api[-_]?key[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-f]{32}|HIGH
+Portkey Header|x-portkey-api-key[\x22\x27\s]*[:=]|HIGH
+Helicone Header|helicone-auth[\x22\x27\s]*[:=][\x22\x27\s]*Bearer|HIGH
+OpenRouter Header|x-openrouter-key|HIGH
+Mistral Env Literal|MISTRAL[_-]?API[_-]?KEY|HIGH
+Together Env Literal|TOGETHER[_-]?API[_-]?KEY|HIGH
+Cohere Env Literal|COHERE[_-]?API[_-]?KEY|HIGH
+System Prompt Leak|[Ss]ystem[_-]?(prompt|instruction)[\x22\x27\s]*[:=][\x22\x27\s]*[\x22\x27][^\x22\x27]{30,}|HIGH
+Qdrant Cluster|[a-z0-9-]+\.[a-z0-9-]+\.qdrant\.tech|HIGH
+Weaviate URL+Key|weaviate\.[a-z0-9.-]+|HIGH
+Zilliz Cloud|[a-z0-9-]+\.api\.zillizcloud\.com|HIGH
+Pinecone Host|[a-z0-9-]+-[0-9]+\.svc\.[a-z0-9-]+\.pinecone\.io|HIGH
 Unstructured API Key|unstructured[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
 Exa API Key|exa[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
-Tavily Key|tvly-[A-Za-z0-9]{20,}|CRITICAL
-# Voice AI (السوق ده مليان مفاتيح متسربة)
-ElevenLabs Key|[0-9a-f]{32}|CRITICAL
-ElevenLabs Header|xi-api-key[\x22\x27\s]*[:=]|CRITICAL
-Deepgram Key|[0-9a-f]{40}|CRITICAL
 Deepgram Header|Authorization:[\x22\x27\s]*Token|HIGH
-AssemblyAI Key|[0-9a-f]{32}|CRITICAL
 Murf Key|murf[_-]?(api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
 PlayHT Key|play[_-]?ht[_-]?key|HIGH
 OpenVoice Key|openvoice[_-]?key|HIGH
 Gladia Key|gladia[_-]?(api)?[_-]?key|HIGH
 Speechmatics Key|speechmatics[_-]?(api)?[_-]?key|HIGH
 RevAI Key|rev[_-]?ai[_-]?key|HIGH
-# Image/Video AI
-Fal.ai Key|fal[_-]?ai[_-]?key[\x22\x27\s]*[:=]|[0-9a-f-]{36}|CRITICAL
-Runway Key|runway[_-]?(api)?[_-]?key|runwayml|CRITICAL
 Ideogram Key|ideogram[_-]?(api)?[_-]?key|HIGH
 Recraft Key|recraft[_-]?(api)?[_-]?key|HIGH
 Stability Key|stability[_-]?(api)?[_-]?key|HIGH
@@ -244,20 +259,119 @@ RemoveBG Key|removebg[_-]?(api)?[_-]?key|HIGH
 Luma Key|luma[_-]?(api)?[_-]?key|HIGH
 Kling Key|kling[_-]?(api)?[_-]?key|HIGH
 Pika Key|pika[_-]?(api)?[_-]?key|HIGH
-# AI Observability / Evals
-LangSmith Key|lsv2_[a-zA-Z0-9]{30,}|ls__[a-zA-Z0-9]{30,}|CRITICAL
 Langfuse Public|pk-lf-[a-f0-9]{20,}|HIGH
-Langfuse Secret|sk-lf-[a-f0-9]{20,}|CRITICAL
-Braintrust Key|bt-[a-zA-Z0-9]{20,}|CRITICAL
-Arize Phoenix|arize[_-]?(api)?[_-]?key|LOW
-PromptLayer Key|pl_[A-Za-z0-9]{20,}|CRITICAL
-Humanloop Key|hl-[A-Za-z0-9]{20,}|CRITICAL
-# MCP — Model Context Protocol (2025-2026 attack surface)
 MCP Config File|mcp\.json|claude_desktop_config\.json|\.cursor/mcp\.json|HIGH
-MCP Server w/ Key|"mcpServers"[\s\S]{0,400}("apiKey"|"token"|"Authorization")|CRITICAL
+Hugging Face Org Token|\bapi_org_[A-Za-z0-9]{16,48}\b|HIGH
+Amazon Bedrock Short Key|bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t|HIGH
+Langfuse UUID Public|\bpk-lf-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|HIGH
+Brave Search API Key|\bBSAI[A-Za-z0-9_-]{20,}\b|HIGH
+Gitea API Token|(?i)(?:gitea[ *_-]?(?:api[ *_-]?)?(?:access[_-]?)?token)\s*[:=]\s*["']?([a-f0-9]{40})|HIGH
+Asana PAT|\b[0-9]/[0-9a-f]{32}\b|HIGH
+MCP Server Command|"command"\s*:\s*"(npx|uvx|python|node)"[\s\S]{0,300}"env"|HIGH
+Cursor MCP Config|\.cursor/mcp\.json|HIGH
+Claude Desktop Config|claude_desktop_config\.json|HIGH
+Dify API Key|\bapp-[A-Za-z0-9]{24,}\b|HIGH
+WakaTime API Key|\bwaka_[0-9a-f-]{36}\b|HIGH
+Kubeconfig Client Cert|client-certificate-data:\s*[A-Za-z0-9+/=]{40,}|HIGH
+Kubeconfig Exec Creds|(?i)exec:[\s\S]{0,200}(command|args).*?(aws|gcloud|az|oci)|HIGH
+Kubernetes Dockercfg Legacy|type:\s*kubernetes\.io/dockercfg|HIGH
+Kubernetes Opaque Secret Data|(?i)type:\s*Opaque[\s\S]{0,200}data:\s*\n\s+[a-z0-9._-]+:\s*[A-Za-z0-9+/=]{16,}|HIGH
+Docker Config.json Path|\.docker/config\.json|HIGH
+Docker Login Password-Stdin|docker\s+login[^\n]{0,80}--password-stdin|HIGH
+Terraform TFVars Secret|(?i)(?:password|secret|token|api_key)\s*=\s*"[^"${}]{12,}"|HIGH
+Terraform Backend Creds|(?i)backend\s+"(?:s3|azurerm|gcs|http)"[\s\S]{0,200}(?:access_key|secret_key|sas_token|credentials)|HIGH
+Helm Values Secret|(?i)(?:password|secret|apiKey|api_key|token|accessKey)\s*:\s*["']?[A-Za-z0-9+/=_-]{12,}|HIGH
+Helm SOPS Encrypted|ENC\[AES256_GCM,data:|HIGH
+Helm Release Secret|type:\s*helm\.sh/release\.v1|HIGH
+GCP Service Account Email|[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com|HIGH
+Azure Managed Identity|MSI_ENDPOINT|IDENTITY_ENDPOINT|MSI_SECRET|HIGH
+Oracle OCI API Key File|\.oci/config|oci_api_key\.pem|HIGH
+Alibaba ACR Password|(?i)(?:acr|registry)[_-]?(?:password|passwd)\s*[=:]\s*["']?[^\s"']{8,}|HIGH
+Cloud IAM Policy Wildcard|"Action"\s*:\s*"\*"|"Resource"\s*:\s*"\*"|HIGH
+Qwen DashScope Key|(?i)(?:dashscope|qwen)[_-]?(?:api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+Baidu ERNIE Key|(?i)(?:ernie|qianfan)[_-]?(?:api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+ByteDance Doubao Key|(?i)(?:doubao|volcengine)[_-]?(?:api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+Yi 01.AI Key|(?i)(?:01\.ai|yi-)[_-]?(?:api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+Nebius Key|(?i)nebius[_-]?(?:api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+MCP Tool List|"tools"\s*:\s*\[[\s\S]{0,400}"inputSchema"|HIGH
+Pgvector Connection|postgresql://[^\s]+.*vector|HIGH
+Redis Vector|redis://[^\s]+.*(?:vector|embedding)|HIGH
+Paytm Merchant Key|(?i)paytm[_-]?(?:merchant)?[_-]?(?:key|mid)[\x22\x27\s]*[:=]|HIGH
+PhonePe Salt|(?i)phonepe[_-]?(?:salt|key)[\x22\x27\s]*[:=]|HIGH
+Orange Money Key|(?i)orange[_-]?(?:money)?[_-]?(?:api)?[_-]?key[\x22\x27\s]*[:=]|HIGH
+GrabPay Partner|(?i)grab[_-]?(?:pay)?[_-]?(?:partner|secret)[\x22\x27\s]*[:=]|HIGH
+Tencent Cloud SecretKey Tight|(?i)tencent[_-]?secret[_-]?key[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9]{32}|HIGH
+HL7 FHIR Token|(?i)(?:fhir|hl7)[_-]?(?:api)?[_-]?(?:key|token)[\x22\x27\s]*[:=]|HIGH
+Epic FHIR Client|(?i)epic[_-]?(?:client)?[_-]?(?:id|secret)[\x22\x27\s]*[:=]|HIGH
+Gov SaaS API|(?i)(?:gov|federal|cms|hhs)[_-]?(?:api)?[_-]?(?:key|token)[\x22\x27\s]*[:=]|HIGH
+Next Env Local File|\.env\.local|\.env\.production|HIGH
+Nuxt Runtime Config|runtimeConfig\s*:\s*\{[\s\S]{0,300}(?:apiSecret|privateKey|secret)|HIGH
+SvelteKit Private Env|PRIVATE_(?!NEXTJS)[A-Z0-9_]+\s*=\s*[\x22\x27]?[A-Za-z0-9_-]{8,}|HIGH
+Sourcemap Secret Inline|\.map["']?\s*[:=].{0,80}(?:api[_-]?key|secret|password|token)\s*[:=]|HIGH
+Webpack DefinePlugin Secret|DefinePlugin\([\s\S]{0,200}process\.env\.[A-Z0-9_]*(?:SECRET|KEY)|HIGH
+# ========================= MEDIUM =========================
+AWS Cognito Identity Pool|[a-z]{2}(?:-gov)?-[a-z]+-[0-9]:[0-9a-f-]{36}|MEDIUM
+Tencent Cloud SecretKey|(?i)tencent[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Za-z0-9]{32}={0,2}|MEDIUM
+Oracle Cloud OCID|ocid1\.[a-z]+\.[a-z0-9]{2,}\.[a-z0-9]{60,}|MEDIUM
+Appwrite Project|https://[a-z0-9.-]+\.appwrite\.io|MEDIUM
+Crisp Website Key|(?i)crisp[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|MEDIUM
+PostHog Project Key|phc_[A-Za-z0-9]{32}|MEDIUM
+Amplitude API Key|amplitude[_-]?(api)?[_-]?key[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-f]{32}|MEDIUM
+FullStory API Key|(?i)fullstory[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Z0-9]{16}:[A-Z0-9]{16}|MEDIUM
+Snowflake Private Link|privatelink\.snowflakecomputing\.com|MEDIUM
+Etherscan API Key|(?i)etherscan[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[A-Z0-9]{34}|MEDIUM
+Magic Publishable Key|pk_live_[A-F0-9]{32}|MEDIUM
+Clerk Publishable|pk_live_[A-Za-z0-9]{32}|MEDIUM
+Stytch Public Token|public-token-[a-f0-9]{8}-[a-f0-9]{4}|MEDIUM
+OpenCage Key|(?i)opencage[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-f]{32}|MEDIUM
+Branch Key|key_live_[A-Za-z0-9]{32}|MEDIUM
+Instabug Token|(?i)instabug[\w\s.-]{0,30}[\x22\x27\s]*[:=][\x22\x27\s]*[0-9a-f]{32}|MEDIUM
+Internal Domain Pattern|https?://[a-z0-9-]+\.(internal|corp|lan|dc|hq)\.|MEDIUM
+Staging API URL|https?://[a-z0-9-]*?(?:staging|uat|preprod|qa|dev)(?:[.-][a-z0-9-]+)?\.[a-z0-9.-]+(?=[/:?#\x22\x27]|$)|MEDIUM
+[SURFACE] Admin Panel Path|["'`](/(admin|dashboard|manage|console|backoffice)[a-zA-Z0-9_/?=&.-]*)["'`]|MEDIUM
+GraphQL Endpoint|["'`](/(graphql|api/graphql|gql)[a-zA-Z0-9_/?=&.-]*)["'`]|MEDIUM
+Backup File Left|[\x22'(/][a-zA-Z0-9_/.-]+\.(?:bak|backup|old|orig|swp|swo)(?:[\x22')?/]|$)|MEDIUM
+AWS Bedrock Config|bedrock[_-]?(runtime|region|model)|MEDIUM
+Assistant Persona Leak|(?i)(you are|act as|your role is|you will be)[^\x22\x27]{0,150}(assistant|support agent|helpful|AI)|MEDIUM
+Prompt Template in JS|[Pp]rompt[_-]?template[\x22\x27\s]*[:=]|MEDIUM
+AI Chat Endpoint|[\x22\x27](/(api/)?(chat|chatbot|ai|llm|agent|completion|conversation)s?[a-zA-Z0-9_/?=&.-]*)[\x22\x27]|MEDIUM
+RAG Endpoint|[\x22\x27](/(api/)?(rag|embed|embedding|vector|knowledge|context|ingest)[a-zA-Z0-9_/?=&.-]*)[\x22\x27]|MEDIUM
+Agent Tool Definitions|tools[\x22\x27\s]*[:=][\x22\x27\s]*\[\s*\{[^\]]{0,300}(function|name)[\x22\x27\s]*:|MEDIUM
 MCP Endpoint URL|(/mcp|/api/mcp|sse$|streamable-http)|MEDIUM
-# Agent frameworks
+Ollama Exposed|http://[0-9.]+:11434|/api/generate|/api/chat|MEDIUM
+OpenWebUI|open-webui|/api/v1/auths|MEDIUM
+Flowise API|flowise|/api/v1/prediction|MEDIUM
+n8n Webhook|n8n\.io|/webhook/|MEDIUM
+Terraform Sensitive Var|variable\s+"[^"]+"\s*\{[^}]{0,200}sensitive\s*=\s*true|MEDIUM
+Helm Secrets Plugin|secrets://|helm secrets|MEDIUM
+Helm Chart Values Path|values\.yaml|values-.*\.yaml|MEDIUM
+GCP Workload Identity|workloadIdentityUser|iam\.googleapis\.com/roles|MEDIUM
+Alibaba KMS Secret|GetSecretValue|acs:kms:|MEDIUM
+Long Lived Cloud Creds|(?i)(?:permanent|long[_-]?lived|never[_-]?expire).{0,40}(?:access[_-]?key|api[_-]?key|token)|MEDIUM
+LlamaIndex Key|llama[_-]?index|llamaindex[_-]?api|MEDIUM
+OpenAI Function Schema|"parameters"\s*:\s*\{\s*"type"\s*:\s*"object"[\s\S]{0,200}"properties"|MEDIUM
+Agent Tool Call Schema|"tool_calls"\s*:\s*\[|"function"\s*:\s*\{\s*"name"\s*:|MEDIUM
+Prompt Injection Marker|(?i)(ignore previous|disregard all|system override|jailbreak|DAN mode)|MEDIUM
+LangSmith Trace|ls\.run_id|langsmith\.trace|MEDIUM
+MercadoPago Public Key|\bTEST-[a-f0-9-]{36}\b|MEDIUM
+Build Manifest Secrets|(?:build-manifest|app-build-manifest|react-loadable-manifest)\.json|MEDIUM
+# ========================= LOW =========================
+Hotjar ID|hjid=[0-9]{6,}|LOW
+Opsgenie API|https://api\.opsgenie\.com/v2/alerts|LOW
+Turnstile Secret|1x0000000000000000000000000000000AA|LOW
+OAuth Redirect URI|redirect_uri=["'`][^"'`]+["'`]|LOW
+API Signing Nonce|nonce["'\s]*[:=]["'\s]*[A-Fa-f0-9]{16,}|LOW
+Few-Shot Examples Leak|few[-_]?shot|examples[\x22\x27\s]*[:=][\x22\x27\s]*\[|LOW
+Model Name Leak|(gpt-4[a-z0-9.-]*|gpt-5[a-z0-9.-]*|claude-3[a-z0-9.-]*|claude-4[a-z0-9.-]*|gemini-[12]\.[a-z0-9.-]*|llama-[23][a-z0-9.-]*|mistral-[a-z0-9.-]*)[\x22\x27]|LOW
+Chroma Server|chroma\.[a-z0-9.-]+|chroma[_-]?server|LOW
+Arize Phoenix|arize[_-]?(api)?[_-]?key|LOW
 CrewAI Config|crewai[_-]?(api)?[_-]?key|LOW
 LangGraph Deployment|langgraph[_-]?(api)?[_-]?key|LOW
 Semantic Kernel Key|semantic[_-]?kernel|LOW
 Guardrails Config|guardrails\.ai|guardrails[_-]?(api)?[_-]?key|LOW
+Supabase Anon Key|eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9|LOW
+Supabase Publishable Key|\bsb_publishable_[A-Za-z0-9_-]{20,}|LOW
+Terraform Output Sensitive|output\s+"[^"]+"\s*\{[^}]{0,100}sensitive\s*=\s*true|LOW
+AutoGen Config|autogen[_-]?(?:api)?[_-]?key|LOW
+Haystack Pipeline|haystack\.(?:Pipeline|DocumentStore)|LOW
+Eval Dataset Leak|(?i)(?:eval|benchmark|test)[_-]?(?:set|data|prompt)[\x22\x27\s]*[:=][\x22\x27\s]*\[|LOW
