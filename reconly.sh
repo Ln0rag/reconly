@@ -428,12 +428,12 @@ seg_dl() {
         (
             _p="$_tmp/$(printf 'p%03d' "$_i")"
             : > "$_p"
-            for _att in 1 2 3; do
+            for _att in 1 2 3 4 5; do
                 _have=$(wc -c < "$_p" 2>/dev/null | tr -d ' '); _have=${_have:-0}
                 _need=$(( _e - _s + 1 - _have ))
                 [ "$_need" -le 0 ] && break
                 _rs=$(( _s + _have ))
-                curl -sSfL --speed-limit 20480 --speed-time 15 -m 180 "${_hdr[@]+${_hdr[@]}}" -r "$_rs-$_e" "$_url" >> "$_p" 2>/dev/null
+                curl -sSfL --speed-limit 2048 --speed-time 20 -m 900 "${_hdr[@]+${_hdr[@]}}" -r "$_rs-$_e" "$_url" >> "$_p" 2>/dev/null
             done
         ) &
     done
@@ -442,7 +442,7 @@ seg_dl() {
     rm -rf "$_tmp"
     _got=$(wc -c < "$_out" 2>/dev/null | tr -d ' ')
     if [ "$_got" != "$_size" ]; then
-        curl -sSfL --speed-limit 20480 --speed-time 15 -m 240 "${_hdr[@]+${_hdr[@]}}" -o "$_out" "$_url" 2>/dev/null
+        curl -sSfL -m 7200 "${_hdr[@]+${_hdr[@]}}" -o "$_out" "$_url" 2>/dev/null
         _got=$(wc -c < "$_out" 2>/dev/null | tr -d ' ')
     fi
     [ "$_got" = "$_size" ]
@@ -496,7 +496,7 @@ print(best or "")' "$_idx" 2>/dev/null)
     for _i in $(seq 0 $(( _n - 1 ))); do
         _s=$(( _i * _chunk )); [ "$_s" -ge "$_size" ] && break
         _e=$(( _s + _chunk - 1 )); [ "$_e" -ge "$_size" ] && _e=$(( _size - 1 ))
-        curl -sS --retry 3 --retry-delay 1 -m 1800 -r "$_s-$_e" -o "$_d/$(printf 'p%03d' "$_i")" "$_url" 2>/dev/null &
+        curl -sS --retry 3 --retry-delay 1 -m 7200 -r "$_s-$_e" -o "$_d/$(printf 'p%03d' "$_i")" "$_url" 2>/dev/null &
     done
     wait
     cat "$_d"/p??? > "$_d/$_fname" 2>/dev/null || true
