@@ -1208,7 +1208,7 @@ extract_map_sources() {
     [ -f "$mapfile" ] || return 1
     jq -e . "$mapfile" >/dev/null 2>&1 || return 1
     local srcname ext
-    jq -j '.sources as $s | .sourcesContent | to_entries[] | select(.value != null and .value != "") | "\(.key)\u0000\($s[.key] // "x.js")\u0000\(.value)\u0000"' "$mapfile" 2>/dev/null \
+    jq -j '.sources as $s | .sourcesContent | to_entries[] | select(.value != null and .value != "") | "\(.key)\u0000\(($s[.key] // "x.js") | gsub("\u0000"; ""))\u0000\(.value | gsub("\u0000"; ""))\u0000"' "$mapfile" 2>/dev/null \
     | while IFS= read -r -d '' idx && IFS= read -r -d '' srcpath && IFS= read -r -d '' content; do
         case "$srcpath" in
             *.ts|*.tsx|*.jsx|*.mjs|*.cjs) ext="${srcpath##*.}" ;;
@@ -1742,7 +1742,7 @@ st_crawl() {
         split -l 10 "$SESSION_DIR/urls/hosts-katana.txt" "$SESSION_DIR/state/tmp/.hostchunk-"
         for _hc in "$SESSION_DIR/state/tmp/.hostchunk-"*; do
             [ -e "$_hc" ] || continue
-            GOMEMLIMIT=2GiB nice -n 5 bash -c 'ulimit -v 4194304 2>/dev/null || true; exec "$@"' _ katana -d 5 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -fs rdn -H "User-Agent: $FAKE_UA" -ef "$katana_ef" 2>/dev/null < "$_hc" | awk '!seen[$0]++' >> "$SESSION_DIR/urls/crawl-katana.txt" || true
+            GOMEMLIMIT=2GiB nice -n 5 timeout --foreground 900 bash -c 'ulimit -v 4194304 2>/dev/null || true; exec "$@"' _ katana -d 5 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -fs rdn -H "User-Agent: $FAKE_UA" -ef "$katana_ef" 2>/dev/null < "$_hc" | awk '!seen[$0]++' >> "$SESSION_DIR/urls/crawl-katana.txt" || true
             rm -f "$_hc"
         done
     fi
@@ -1752,9 +1752,16 @@ st_crawl() {
         out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -u .archive-seeds.txt -d 3 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -H 'User-Agent: ***' | awk '!seen[\$0]++' > urls/crawl-archive.txt || true"
         : > "$SESSION_DIR/urls/crawl-archive.txt"
         split -l 200 "$SESSION_DIR/state/tmp/.archive-seeds.txt" "$SESSION_DIR/state/tmp/.seedchunk-"
+        local _scn=0
         for _sc in "$SESSION_DIR/state/tmp/.seedchunk-"*; do
             [ -e "$_sc" ] || continue
-            GOMEMLIMIT=2GiB nice -n 5 bash -c 'ulimit -v 4194304 2>/dev/null || true; exec "$@"' _ katana -u "$_sc" -d 3 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -H "User-Agent: $FAKE_UA" 2>/dev/null | awk '!seen[$0]++' >> "$SESSION_DIR/urls/crawl-archive.txt" || true
+            _scn=$((_scn+1))
+            if [ "$_scn" -gt 10 ]; then
+                out "  archive crawl capped: 2000 of $(wc -l < "$SESSION_DIR/state/tmp/.archive-seeds.txt" | tr -d ' ') seed URLs"
+                rm -f "$SESSION_DIR/state/tmp/.seedchunk-"*
+                break
+            fi
+            GOMEMLIMIT=2GiB nice -n 5 timeout --foreground 900 bash -c 'ulimit -v 4194304 2>/dev/null || true; exec "$@"' _ katana -u "$_sc" -d 3 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -H "User-Agent: $FAKE_UA" 2>/dev/null | awk '!seen[$0]++' >> "$SESSION_DIR/urls/crawl-archive.txt" || true
             rm -f "$_sc"
         done
         sort -u "$SESSION_DIR/urls/crawl-archive.txt" -o "$SESSION_DIR/urls/crawl-archive.txt"
