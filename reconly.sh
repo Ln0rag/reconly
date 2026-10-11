@@ -746,7 +746,7 @@ check_tools() {
         out ""
         out "${C_W}installing $_nm missing tool(s) via official installers${C_R}"
         INSTALLED_ANYTHING=1
-        out "  ${C_Y}note: go tools compile from source and downloads take time, total ~10-20 min on a fresh machine. Do NOT interrupt.${C_R}"
+        out "  ${C_Y}note: go tools compile from source and downloads take time, total ~10-40 min on a fresh machine. Do NOT interrupt.${C_R}"
         for _t in $_missing; do
             hint="${TOOL_INSTALL[$_t]:-}"
             if [ -z "$hint" ]; then
@@ -755,7 +755,7 @@ check_tools() {
             fi
             out "  ${C_W}installing $_t ...${C_R}"
             out "    ${C_MAG}cmd: $hint${C_R}"
-            if ( timeout --foreground 900 bash -c "$hint" ); then
+            if ( bash -c "$hint" ); then
                 export PATH="$PATH:$HOME/github-tools:$HOME/.local/bin:$HOME/go/bin:$HOME/github-tools/codeql"
                 _p=$(locate_tool "$_t")
                 if [ -n "$_p" ]; then
@@ -839,7 +839,7 @@ check_tools() {
             if [ -z "$hint" ]; then MISSING="$MISSING $_t"; continue; fi
             out "  ${C_W}reinstalling $_t ...${C_R}"
             out "    ${C_MAG}cmd: $hint${C_R}"
-            ( timeout --foreground 900 bash -c "$hint" ) || true
+            ( bash -c "$hint" ) || true
             export PATH="$PATH:$HOME/github-tools:$HOME/github-tools/codeql:$HOME/.local/bin:$HOME/go/bin"
             _p=$(locate_tool "$_t")
         done
@@ -862,7 +862,10 @@ check_tools() {
         for _t in $MISSING; do
             out "${C_RED}[FATAL] $_t still missing after install attempt${C_R}"
             hint="${TOOL_INSTALL[$_t]:-}"
-            [ -n "$hint" ] && out "    Install manually: ${C_W}$hint${C_R}"
+            if [ -n "$hint" ]; then
+                hint=$(printf '%s' "$hint" | sed -E 's/seg_dl ("[^"]+") ("?[^" ]+"?)( [0-9]+)?/curl -fSL -o \2 \1/g; s/pip_install_tool [^ ]+ ([^ ]+)/python3 -m pip install --user \1/')
+                out "    Install manually: ${C_W}$hint${C_R}"
+            fi
         done
         exit 1
     fi
