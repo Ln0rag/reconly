@@ -29,7 +29,9 @@ PRETTIER_MAX_MB=150
 PRETTIER_BATCH=20
 OBF_MAX_FILES=50
 JS_MAX_ROUNDS=4
-NAABU_PORTS="80,443,8080,8443,8000,8888,3000,4000,5000,7000,9000,9090,9999,8081,8181,4443,9443,10000,2375,2376,6443,10250,9200,5601,8500,8200,2379,15672,7474"
+NAABU_PORTS="21,22,23,25,53,80,81,88,110,111,135,139,143,389,443,445,465,587,631,636,873,990,993,995,1433,1521,2049,2082,2083,2086,2087,2095,2096,2222,2375,2376,2379,2483,3000,3001,3128,3306,3389,4000,4443,4444,5000,5001,5432,5601,5900,5901,5985,5986,6379,6443,7000,7001,7002,7070,7443,7474,7777,8000,8001,8008,8010,8030,8070,8080,8081,8082,8083,8088,8090,8091,8180,8181,8200,8222,8243,8280,8443,8444,8500,8880,8888,8983,9000,9080,9090,9200,9300,9443,9999,10000,10250,11211,15672,27017"
+NAABU_RATE="${NAABU_RATE:-100}"
+NAABU_RETRIES="${NAABU_RETRIES:-1}"
 KATANA_RL="${KATANA_RL:-$((RANDOM % 11 + 30))}"
 RECONLY_PAGE_THREADS="${RECONLY_PAGE_THREADS:-8}"
 RECONLY_AUTO_INSTALL="${RECONLY_AUTO_INSTALL:-1}"
@@ -55,13 +57,15 @@ C_CYN="\033[36;1m"
 C_W="\033[37;1m"
 
 out() {
-    local msg="$1"
+    local msg="$1" plain
+    plain=$(printf '%b' "$msg" | sed -r 's/\x1b\[[0-9;]*m//g')
     if [ -t 6 ]; then
-        printf '%b\n' "$msg"
-    else
-        local plain
-        plain=$(printf '%b' "$msg" | sed -r 's/\x1b\[[0-9;]*m//g')
+        printf '%b\n' "$msg" >&6
+        printf '%b\n' "$msg" >&7 2>/dev/null || true
         printf '%s\n' "$plain"
+    else
+        printf '%s\n' "$plain"
+        printf '%s\n' "$plain" >&6 2>/dev/null || true
     fi
 }
 die() {
@@ -108,7 +112,7 @@ trap_ctrlc() {
     sleep 0.3 2>/dev/null || true
     [ -n "${SESSION_DIR:-}" ] && [ -d "$SESSION_DIR/state/tmp" ] && rm -rf "$SESSION_DIR/state/tmp" 2>/dev/null
     stty sane 2>/dev/null || true
-    out "${C_RED}Scan halted — Cleanup complete${C_R}"
+    out "${C_RED}Scan halted${C_R}"
     kill -KILL -- -$$ 2>/dev/null || true
     exit 130
 }
@@ -131,7 +135,7 @@ while getopts "d:h" opt; do
 done
 shift $((OPTIND - 1))
 if [ "$#" -gt 0 ]; then
-    out "${C_Y}[warn] ignoring unexpected extra argument(s): $* -- if a path contains spaces, quote it${C_R}"
+    out "${C_Y}[warn] ignoring unexpected extra argument(s): $*${C_R}"
 fi
 
 [ -z "$RAW_DOMAIN" ] && die "Missing -d domain"
@@ -150,7 +154,7 @@ if [ ! -s "$RESOLVERS_FILE" ]; then
     else
         rm -f "$RESOLVERS_FILE"
         RESOLVERS_FILE=""
-        out "${C_Y}resolvers list unavailable -- dnsx will fall back to 1.1.1.1/8.8.8.8/9.9.9.9${C_R}"
+        out "${C_Y}resolvers list unavailable, dnsx will fall back to 1.1.1.1/8.8.8.8/9.9.9.9${C_R}"
     fi
 fi
 
@@ -159,11 +163,11 @@ if [ ! -s "$HOME/github-tools/hunt-custom.txt" ]; then
     if curl -sf -m 20 "https://raw.githubusercontent.com/Ln0rag/reconly/main/hunt-custom.txt" -o "$HOME/github-tools/hunt-custom.txt" 2>/dev/null; then
         out "${C_W}hunt-custom.txt downloaded ($(wc -l < "$HOME/github-tools/hunt-custom.txt" | tr -d ' ') hunter patterns) -> ~/github-tools/hunt-custom.txt${C_R}"
     else
-        out "${C_Y}[INFO] hunt-custom.txt not found -- get it: https://github.com/Ln0rag/reconly/blob/main/hunt-custom.txt -> save as ~/github-tools/hunt-custom.txt${C_R}"
+        out "${C_Y}[INFO] hunt-custom.txt not found, get it: https://github.com/Ln0rag/reconly/blob/main/hunt-custom.txt -> save as ~/github-tools/hunt-custom.txt${C_R}"
     fi
 fi
 
-TOOL_LIST=(codeql subfinder httpx naabu katana semgrep syft grype noseyparker waymore gitleaks dnsx gau amass jsluice trufflehog jq retire)
+TOOL_LIST=(codeql subfinder httpx naabu katana semgrep syft grype noseyparker waymore gitleaks dnsx gau amass jsluice trufflehog jq retire nmap)
 
 declare -A TOOL_INSTALL=(
     [subfinder]='go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest'
@@ -184,6 +188,7 @@ declare -A TOOL_INSTALL=(
     [retire]='mkdir -p "$HOME/github-tools" && npm install -g --prefix "$HOME/github-tools/.npm" --no-fund --no-audit --loglevel=error retire && ln -sf "$HOME/github-tools/.npm/bin/retire" "$HOME/github-tools/retire"'
     [jq]='ver=$(curl -s https://api.github.com/repos/jqlang/jq/releases/latest | jq -r .tag_name | sed "s/^jq-//;s/^v//") && mkdir -p "$HOME/github-tools" && curl -sSfL https://github.com/jqlang/jq/releases/latest/download/jq-linux-amd64 -o "$HOME/github-tools/jq" && chmod +x "$HOME/github-tools/jq" && mkdir -p "$HOME/github-tools/.tool-versions" && printf "%s\n" "$ver" > "$HOME/github-tools/.tool-versions/jq"'
     [openssl]='sudo apt install openssl -y'
+    [nmap]='sudo apt install nmap -y'
     [waymore]='pip_install_tool waymore git+https://github.com/xnl-h4ck3r/waymore.git'
 )
 
@@ -193,7 +198,7 @@ maybe_fresh_restart() {
     out "${C_Y}one or more tools were installed during this session${C_R}"
     out "${C_Y}press Enter to restart reconly in a clean environment (recommended)${C_R}"
     if ! { read -r _ < /dev/tty; } 2>/dev/null; then
-        out "  ${C_W}no interactive terminal -- continuing in the current session${C_R}"
+        out "  ${C_W}No interactive terminal, continuing in the current session${C_R}"
         return 0
     fi
     clear 2>/dev/null || true
@@ -210,7 +215,7 @@ codeql_pack_use_downloads() {
     for _f in "$HOME"/Downloads/github-codeql-*.tar.gz "$HOME"/Downloads/codeql-src*.tar.gz "$HOME"/Downloads/codeql*.tar.gz; do
         [ -f "$_f" ] || continue
         if ! gzip -t "$_f" 2>/dev/null; then
-            out "  ${C_Y}[warn] ~/Downloads/$(basename "$_f"): CORRUPT or truncated archive -- re-download it${C_R}"
+            out "  ${C_Y}[warn] ~/Downloads/$(basename "$_f"): CORRUPT or truncated archive, re-download it${C_R}"
             continue
         fi
         _tmp=$(mktemp -d 2>/dev/null) || continue
@@ -222,7 +227,7 @@ codeql_pack_use_downloads() {
         fi
         _suite=$(find "$_tmp" -name 'javascript-security-extended.qls' 2>/dev/null | head -1)
         if [ -z "$_suite" ]; then
-            out "  ${C_Y}[warn] $(basename "$_f"): suite javascript-security-extended.qls not found -- suites present: $(find "$_tmp" -path '*codeql-suites*' -name '*.qls' 2>/dev/null | head -3 | tr '\n' ' ')${C_R}"
+            out "  ${C_Y}[warn] $(basename "$_f"): suite javascript-security-extended.qls not found, suites present: $(find "$_tmp" -path '*codeql-suites*' -name '*.qls' 2>/dev/null | head -3 | tr '\n' ' ')${C_R}"
             rm -rf "$_tmp"
             continue
         fi
@@ -287,17 +292,12 @@ ensure_runtime_deps() {
             out "${C_GRN}query pack already cached${C_R}"
         else
             out ""
-            out "${C_Y}query packs are NOT installed -- one manual step, then rerun:${C_R}"
-            out "  1) download ONE of these in your browser (phone hotspot = different ISP, no throttle):"
-            out "       https://codeload.github.com/github/codeql/legacy.tar.gz/codeql-cli-2.27.1"
+            out "${C_Y}query packs are NOT installed, one manual step, then rerun:${C_R}"
+            out "  1) download by your browser and save it to ~/Downloads"
             out "       https://codeload.github.com/github/codeql/legacy.tar.gz/main"
-            out "  2) leave the .tar.gz in ~/Downloads -- reconly installs it automatically on the next run."
-            out "     (or extract manually: mkdir -p ~/github-tools/.codeql/codeql-src &&"
-            out "      tar -xzf ~/Downloads/<file>.tar.gz -C ~/github-tools/.codeql/codeql-src --strip-components=1)"
-            out "  3) verify: find ~/github-tools/.codeql/codeql-src -name javascript-security-extended.qls | head -1  (should print a path)"
             out "  4) rerun reconly"
             out ""
-            out "${C_Y}stopped -- do the manual step above and rerun.${C_R}"
+            out "${C_Y}stopped, DO the manual step above and rerun.${C_R}"
             exit 1
         fi
     fi
@@ -308,7 +308,7 @@ ensure_global_path() {
     case ":$PATH:" in *":$HOME/github-tools:"*) ;; *) export PATH="$PATH:$HOME/github-tools" ;; esac
     case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$PATH:$HOME/.local/bin" ;; esac
     case ":$PATH:" in *":$HOME/go/bin:"*) ;; *) export PATH="$PATH:$HOME/go/bin" ;; esac
-    case ":$PATH:" in *":$HOME/go-sdk/bin:"*) ;; *) [ -d "$HOME/go-sdk/bin" ] && export PATH="$PATH:$HOME/go-sdk/bin" ;; esac
+    case ":$PATH:" in *":/usr/local/go/bin:"*) ;; *) [ -x /usr/local/go/bin/go ] && export PATH="$PATH:/usr/local/go/bin" ;; esac
     case ":$PATH:" in *":$HOME/github-tools/codeql:"*) ;; *) [ -d "$HOME/github-tools/codeql" ] && export PATH="$PATH:$HOME/github-tools/codeql" ;; esac
     if command -v python3 >/dev/null 2>&1; then
         _ub=$(python3 -m site --user-base 2>/dev/null)
@@ -347,29 +347,59 @@ locate_tool() {
 }
 
 ensure_go() {
-    command -v go &>/dev/null && return 0
-    out "  ${C_W}installing Go (required by many tools) ...${C_R}"
+    if command -v go &>/dev/null && [ -x /usr/local/go/bin/go ]; then return 0; fi
+    out "  ${C_W}installing Go ...${C_R}"
     mkdir -p "$HOME/.cache" 2>/dev/null || true
-    local _gv _gt
-    _gv=$(curl -s -m 20 'https://go.dev/dl/?mode=json' | jq -r '.[0].version' 2>/dev/null) || true
+    local _gv _gt _arch _cfg
+    _gv=$(curl -fsSL -m 20 'https://go.dev/VERSION?m=text' 2>/dev/null | head -n1) || true
     if [ -z "$_gv" ]; then _gv="go1.22.5"; fi
-    _gt="${_gv}.linux-amd64.tar.gz"
-    if curl -sSfL "https://go.dev/dl/${_gt}" -o "$HOME/.cache/go.tgz" 2>/dev/null && [ -s "$HOME/.cache/go.tgz" ]; then
-        mkdir -p "$HOME/go-sdk" && tar -xzf "$HOME/.cache/go.tgz" -C "$HOME/go-sdk" --strip-components=1 && rm -f "$HOME/.cache/go.tgz"
-        export PATH="$HOME/go-sdk/bin:$PATH"
-        local _gline='export PATH="$HOME/go-sdk/bin:$PATH"' _rc
-        for _rc in "$HOME/.profile" "$HOME/.bashrc"; do
-            [ -f "$_rc" ] && ! grep -q 'go-sdk/bin' "$_rc" 2>/dev/null && printf '\n%s\n' "$_gline" >> "$_rc"
-        done
-        out "${C_GRN}  Go installed -> $HOME/go-sdk/bin/go${C_R}"
+    case "$(uname -m)" in
+        x86_64)        _arch=amd64 ;;
+        aarch64|arm64) _arch=arm64 ;;
+        armv6l|armv7l) _arch=armv6l ;;
+        i386|i686)     _arch=386 ;;
+        *) out "  ${C_Y}[warn] unsupported arch: $(uname -m) -- go-based installs will fail${C_R}"; return 0 ;;
+    esac
+    _gt="${_gv}.linux-${_arch}.tar.gz"
+    if curl -fsSL -m 7200 "https://go.dev/dl/${_gt}" -o "$HOME/.cache/go.tgz" 2>/dev/null \
+       && [ -s "$HOME/.cache/go.tgz" ] && tar -tzf "$HOME/.cache/go.tgz" >/dev/null 2>&1; then
+        if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get remove -y golang-go 'golang-*-go' >/dev/null 2>&1 || true
+        fi
+        if sudo rm -rf /usr/local/go 2>/dev/null && sudo tar -C /usr/local -xzf "$HOME/.cache/go.tgz" 2>/dev/null; then
+            rm -f "$HOME/.cache/go.tgz"
+            export GOPATH="$HOME/go"
+            export PATH="/usr/local/go/bin:$GOPATH/bin:$PATH"
+            hash -r 2>/dev/null || true
+            case "$(basename "$SHELL")" in
+                bash) _cfg="$HOME/.bashrc" ;;
+                zsh)  _cfg="$HOME/.zshrc" ;;
+                *)    _cfg="$HOME/.profile" ;;
+            esac
+            touch "$_cfg" 2>/dev/null || true
+            grep -qxF 'export GOPATH=$HOME/go' "$_cfg" 2>/dev/null || printf '%s\n' 'export GOPATH=$HOME/go' >> "$_cfg" 2>/dev/null || true
+            grep -qxF 'export PATH="/usr/local/go/bin:$GOPATH/bin:$PATH"' "$_cfg" 2>/dev/null || printf '%s\n' 'export PATH="/usr/local/go/bin:$GOPATH/bin:$PATH"' >> "$_cfg" 2>/dev/null || true
+            if [ "$_cfg" != "$HOME/.profile" ] && [ -f "$HOME/.profile" ]; then
+                grep -qxF 'export PATH="/usr/local/go/bin:$GOPATH/bin:$PATH"' "$HOME/.profile" 2>/dev/null || printf '%s\n' 'export PATH="/usr/local/go/bin:$GOPATH/bin:$PATH"' >> "$HOME/.profile" 2>/dev/null || true
+            fi
+            if command -v go >/dev/null 2>&1; then
+                out "${C_GRN}  Go installed -> /usr/local/go/bin/go ($(go version 2>/dev/null | awk '{print $3}'))${C_R}"
+            else
+                out "  ${C_Y}[warn] Go extracted but not on PATH this session${C_R}"
+            fi
+        else
+            rm -f "$HOME/.cache/go.tgz"
+            out "  ${C_Y}[warn] Go install to /usr/local failed (sudo?), go-based installs will fail${C_R}"
+        fi
     else
-        out "  ${C_Y}[warn] Go download failed -- go-based installs will fail${C_R}"
+        rm -f "$HOME/.cache/go.tgz"
+        out "  ${C_Y}[warn] Go download failed, go-based installs will fail${C_R}"
     fi
     return 0
 }
 
 ensure_pip() {
-    command -v python3 &>/dev/null || { out "  ${C_Y}[warn] python3 missing -- pip-based tools cannot install${C_R}"; return 0; }
+    command -v python3 &>/dev/null || { out "  ${C_Y}[warn] python3 missing, pip-based tools cannot install${C_R}"; return 0; }
     python3 -m pip --version &>/dev/null && return 0
     out "  ${C_W}bootstrapping pip ...${C_R}"
     python3 -m ensurepip --upgrade >/dev/null 2>&1 || out "  ${C_Y}[warn] ensurepip failed (try: sudo apt install python3-pip)${C_R}"
@@ -461,7 +491,7 @@ print(best or "")' "$_idx" 2>/dev/null)
     _size=$(curl -sIL -m 30 "$_url" 2>/dev/null | tr -d '\r' | grep -i '^content-length:' | tail -1 | awk '{print $2}')
     if [ -z "$_size" ] || [ "$_size" -le 0 ] 2>/dev/null; then rm -rf "$_d"; return 1; fi
     if [ "$_size" -lt 20000000 ]; then rm -rf "$_d"; return 1; fi
-    out "  ${C_W}$_fname is $_size bytes -- segmented download (x$_n streams)${C_R}"
+    out "  ${C_W}$_fname is $_size bytes, segmented download (x$_n streams)${C_R}"
     _chunk=$(( ( _size + _n - 1 ) / _n ))
     for _i in $(seq 0 $(( _n - 1 ))); do
         _s=$(( _i * _chunk )); [ "$_s" -ge "$_size" ] && break
@@ -560,6 +590,7 @@ check_for_updates() {
         [grype]='gh:anchore/grype'
         [codeql]='gh:github/codeql-cli-binaries'
         [retire]='gh:RetireJS/retire.js'
+        [nmap]='gh:nmap/nmap'
     )
     local tmp; tmp=$(mktemp)
     printf '#%s\n' "$hb" > "$tmp"
@@ -591,7 +622,7 @@ check_tools() {
     ensure_global_path
     rm -rf "$HOME/github-tools/.versions" 2>/dev/null || true
 
-    out "${C_K}____________________________________________________________________________________${C_R}"
+    out ""
     check_for_updates &
     local _updpid=$!
     _versions=$(printf '%s\n' "${_all[@]}" | xargs -d '\n' -P 8 -I {} bash -c '
@@ -611,7 +642,7 @@ check_tools() {
                 v=$(timeout --foreground 5 noseyparker --version 2>/dev/null | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1) ;;
             *)
                 _go=$(command -v go 2>/dev/null || true)
-                [ -z "$_go" ] && [ -x "$HOME/go-sdk/bin/go" ] && _go="$HOME/go-sdk/bin/go"
+                [ -z "$_go" ] && [ -x /usr/local/go/bin/go ] && _go="/usr/local/go/bin/go"
                 [ -z "$_go" ] && [ -x "$HOME/go/bin/go" ] && _go="$HOME/go/bin/go"
                 if [ -n "$_go" ]; then
                     v=$("$_go" version -m "$(command -v "$t" 2>/dev/null)" 2>/dev/null | grep -m1 "mod" | tr -s " \t" " " | sed -e "s/^ *//" | cut -d" " -f3 | cut -c1-60)
@@ -649,7 +680,7 @@ check_tools() {
 
     local _missing="" _have=0 _nm=0 _t _x _p _v _g _gsfx MISSING=""
     local -a _g_sys=() _g_go=() _g_gt=() _g_miss=()
-    local -a _disp=( "${_utils[@]}" jq codeql subfinder httpx naabu katana semgrep syft grype noseyparker waymore gitleaks dnsx gau amass jsluice trufflehog retire )
+    local -a _disp=( "${_utils[@]}" jq codeql subfinder httpx naabu katana semgrep syft grype noseyparker waymore gitleaks dnsx gau amass jsluice trufflehog retire nmap )
     for _t in "${_disp[@]}"; do
         _p=$(locate_tool "$_t")
         _v=$(printf '%s\n' "$_versions" | awk -F= -v k="$_t" '$1==k{print substr($0, index($0,"=")+1); exit}')
@@ -678,7 +709,7 @@ check_tools() {
                 esac
             fi
             local _pdisp="${_p/#$HOME/\~}"
-            local _line="${C_GRN}[installed]${C_R} ${C_W}$_t${_tpad}${C_R}${C_Y}v $_vdisp${_vpad}${C_R}dir ${C_MAG}$_pdisp${_gsfx}${C_R}$_up"
+            local _line="${C_GRN}$_t${_tpad}${C_R}${C_W}$_vdisp${_vpad}${C_R}$_pdisp${_gsfx}$_up"
             case "$_p" in
                 "$HOME"/go/bin/*)       _g_go+=("$_line") ;;
                 "$HOME"/github-tools/*) _g_gt+=("$_line") ;;
@@ -686,7 +717,7 @@ check_tools() {
             esac
         else
             _missing="$_missing $_t"
-            _g_miss+=("${C_RED}[missing]${C_R}   ${C_W}$_t${C_R}")
+            _g_miss+=("${C_RED}$_t${C_R}")
         fi
     done
     for _l in "${_g_sys[@]+"${_g_sys[@]}"}"; do out "$_l"; done
@@ -694,7 +725,6 @@ check_tools() {
     for _l in "${_g_gt[@]+"${_g_gt[@]}"}";  do out "$_l"; done
     for _l in "${_g_miss[@]+"${_g_miss[@]}"}"; do out "$_l"; done
     for _x in $_missing; do _nm=$((_nm+1)); done
-    out "${C_K}_____________________________ $_have installed | $_nm missing _____________________________${C_R}"
 
     if [ -n "$_missing" ] && [ "$RECONLY_AUTO_INSTALL" != "0" ]; then
         PYBSP=""
@@ -704,7 +734,7 @@ check_tools() {
         fi
         export PYBSP
         if [ -z "$(locate_tool jq)" ]; then
-            out "  ${C_W}bootstrapping jq first -- other installers need it for GitHub API JSON${C_R}"
+            out "  ${C_W}bootstrapping jq first, other installers need it for GitHub API JSON${C_R}"
             mkdir -p "$HOME/github-tools"
             if curl -sSfL https://github.com/jqlang/jq/releases/latest/download/jq-linux-amd64 -o "$HOME/github-tools/jq" 2>/dev/null && chmod +x "$HOME/github-tools/jq"; then
                 export PATH="$PATH:$HOME/github-tools"
@@ -716,7 +746,7 @@ check_tools() {
         out ""
         out "${C_W}installing $_nm missing tool(s) via official installers${C_R}"
         INSTALLED_ANYTHING=1
-        out "  ${C_Y}note: go tools compile from source and downloads take time -- total ~10-20 min on a fresh machine. Do NOT interrupt.${C_R}"
+        out "  ${C_Y}note: go tools compile from source and downloads take time, total ~10-20 min on a fresh machine. Do NOT interrupt.${C_R}"
         for _t in $_missing; do
             hint="${TOOL_INSTALL[$_t]:-}"
             if [ -z "$hint" ]; then
@@ -736,7 +766,7 @@ check_tools() {
                     out "  ${C_Y}[warn] $_t installer ran but produced no binary (search ~/.local/bin, ~/go/bin)${C_R}"
                 fi
             else
-                out "  ${C_RED}[warn] $_t install failed -- REQUIRED${C_R}"
+                out "  ${C_RED}[warn] $_t install failed, REQUIRED${C_R}"
             fi
         done
         export PATH="$PATH:$HOME/github-tools:$HOME/.local/bin:$HOME/go/bin:$HOME/codeql"
@@ -749,7 +779,7 @@ check_tools() {
             fi
         done
     elif [ -n "$_missing" ]; then
-        out "${C_Y}RECONLY_AUTO_INSTALL=0 -- skipping installs (missing:$_missing)${C_R}"
+        out "${C_Y}RECONLY_AUTO_INSTALL=0, skipping installs (missing:$_missing)${C_R}"
     fi
 
     local _rc
@@ -776,7 +806,7 @@ check_tools() {
         esac
     done
     if [ "$_gtmoved" -gt 0 ]; then
-        out "  ${C_W}moved $_gtmoved tool(s) into ~/github-tools -- single inventory folder${C_R}"
+        out "  ${C_W}moved $_gtmoved tool(s) into ~/github-tools, single inventory folder${C_R}"
     fi
     local _nested=0
     for _t in "${TOOL_LIST[@]}"; do
@@ -802,7 +832,7 @@ check_tools() {
     done
     if [ -n "$_broken" ]; then
         out ""
-        out "${C_Y}installed but NOT functional:$_broken -- one reinstall attempt each${C_R}"
+        out "${C_Y}installed but NOT functional:$_broken, one reinstall attempt each${C_R}"
         INSTALLED_ANYTHING=1
         for _t in $_broken; do
             hint="${TOOL_INSTALL[$_t]:-}"
@@ -815,7 +845,7 @@ check_tools() {
         done
         for _t in $_broken; do
             if command -v "$_t" &>/dev/null && smoke_test "$_t"; then
-                out "${C_GRN}  $_t recovered -- ready${C_R}"
+                out "${C_GRN}  $_t recovered, ready${C_R}"
             else
                 out "  ${C_RED}[FATAL] $_t still not functional after reinstall${C_R}"
                 MISSING="$MISSING $_t"
@@ -849,15 +879,17 @@ export SESSION_DIR DOMAIN DOMAIN_ESCAPED FAKE_UA \
     RECONLY_JS_THREADS RECONLY_FETCH_THREADS RECONLY_PAGE_THREADS RECONLY_MAX_PAGES JS_MAX_ROUNDS KATANA_HEADLESS \
     PRETTIER_JOBS PRETTIER_BATCH PRETTIER_MAX_MB OBF_MAX_FILES JITTER_MIN JITTER_MAX
 
+exec 6>&1
+
 LOCK_FILE="$BASE_DIR/.lock"
 exec 300>"$LOCK_FILE"
 if ! flock -n 300; then
     die "Another reconly run is active on $DOMAIN (lock: $LOCK_FILE). Wait or rm it."
 fi
 
-exec 6>&1
-exec > >(tee -a "$SESSION_DIR/reconly.log") 2>&1
-out "${C_W}console mirror active -- full output (results, progress, everything) -> $SESSION_DIR/reconly.log${C_R}"
+exec > >(tee -a "$SESSION_DIR/reconly.log" >/dev/null) 2>&1
+exec 7>>"$SESSION_DIR/state/reconly.ansi.log"
+out "${C_W}console mirror active, full output (results, progress, everything) -> $SESSION_DIR/reconly.log${C_R}"
 
 _jitter() { sleep "$(awk -v min="$JITTER_MIN" -v max="$JITTER_MAX" 'BEGIN{srand(); print (min+rand()*(max-min))/1000}')"; }
 _rotate_ua() {
@@ -1208,14 +1240,14 @@ adapt_threads() {
         export RECONLY_FETCH_THREADS
         KATANA_RL=$(( KATANA_RL / 2 ))
         [ "$KATANA_RL" -lt 10 ] && KATANA_RL=10
-        out "${C_Y}[stealth] 429s = $((_429n * 100 / _tot))% of the wave -- rate down to $KATANA_RL/s${C_R}"
+        out "${C_Y}[stealth] 429s = $((_429n * 100 / _tot))% of the wave, rate down to $KATANA_RL/s${C_R}"
     elif [ "$_tot" -ge 40 ] && [ "$((_errn * 5))" -gt "$_tot" ]; then
         RECONLY_FETCH_THREADS=$(( RECONLY_FETCH_THREADS * 2 / 3 ))
         [ "$RECONLY_FETCH_THREADS" -lt 5 ] && RECONLY_FETCH_THREADS=5
         export RECONLY_FETCH_THREADS
         KATANA_RL=$(( KATANA_RL * 2 / 3 ))
         [ "$KATANA_RL" -lt 10 ] && KATANA_RL=10
-        out "${C_Y}[stealth] server stress ($_errn x 502/000 = $((_errn * 100 / _tot))%) -- rate down to $KATANA_RL/s${C_R}"
+        out "${C_Y}[stealth] server stress ($_errn x 502/000 = $((_errn * 100 / _tot))%), rate down to $KATANA_RL/s${C_R}"
     fi
     return 0
 }
@@ -1488,15 +1520,15 @@ _httpx_wave() {
 st_subdomains() {
     local out="$SESSION_DIR/subdomains/raw"
     mkdir -p "$out"
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ subfinder${C_R} -d '$DOMAIN' -all -recursive -rl 50 -t 100 -silent | sort -u > subdomains/raw/subfinder.txt"
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ amass${C_R} enum -d '$DOMAIN' -timeout 5 && amass subs -names -d '$DOMAIN' > subdomains/raw/amass.txt   (v5: OAM database flow)"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ subfinder${C_R} -d '$DOMAIN' -all -recursive -rl 50 -t 100 -silent | sort -u"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ amass${C_R} enum -d '$DOMAIN' -timeout 5 && ${C_RED}amass${C_R} subs -names -d '$DOMAIN'"
     timeout --foreground 900 subfinder -d "$DOMAIN" -all -recursive -rl 50 -t 100 -silent 2>"$SESSION_DIR/state/tmp/subfinder.err" | sort -u > "$out/subfinder.txt" || true &
     local _spid=$!
     if ! pgrep -f "amass engine" >/dev/null 2>&1; then
         (amass engine >/dev/null 2>&1 &)
         sleep 3
     fi
-    timeout --foreground 600 amass enum -d "$DOMAIN" -timeout 5 -oA "$SESSION_DIR/state/tmp/amass_out" >/dev/null 2>"$SESSION_DIR/state/tmp/amass.err" || true &
+    timeout --foreground 900 amass enum -d "$DOMAIN" -timeout 5 -oA "$SESSION_DIR/state/tmp/amass_out" >/dev/null 2>"$SESSION_DIR/state/tmp/amass.err" || true &
     local _apid=$!
     wait "$_spid" "$_apid" 2>/dev/null || true
     amass subs -names -d "$DOMAIN" 2>/dev/null | sed 's/^\*\.//' | grep -E "(^|\.)${DOMAIN_ESCAPED}$" | sort -u > "$out/amass.txt"
@@ -1515,8 +1547,8 @@ st_subdomains() {
     if [ "${_subcount:-0}" -gt 5000 ]; then
         out "${C_Y}subs >5000, skipping permutations (smart mode targets small scopes)${C_R}"
     elif [ "${_subcount:-0}" -gt 0 ]; then
-        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ permutations${C_R} env-wordlist x $_subcount labels | dnsx resolve -a -t 2000 + resolvers   (smart mode, seconds)"
-        PERM_WORDS="dev staging test uat demo admin panel api v2 old new backup internal qa pre prod mobile web"
+        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ permutations${C_R} env-wordlist x $_subcount labels | dnsx resolve -a -t 2000 + resolvers"
+        PERM_WORDS="dev development staging stage test testing qa uat demo prod production pre preprod preview sandbox alpha beta gamma canary nightly rc live v1 v2 v3 v4 v5 old new legacy backup bak archive temp tmp migrate admin administrator panel dashboard manage management console portal cp api apis gateway service services microservice backend backoffice frontend web mobile app apps m secure ssl auth login sso oauth id account accounts user users internal external intranet corp staff employee employees partner partners client clients customer vendor reseller affiliate eu us uk ae sa eg global int mail email ftp sftp ssh vpn remote git ci cd jenkins gitlab jira confluence wiki docs help support status monitor monitoring grafana kibana logs log analytics metrics metrics2 cache cdn assets static media files download downloads upload img images video db database mysql postgres redis elastic search solr queue broker kafka rabbit nats ws websocket realtime chat bot crawler cron scheduler worker workers job jobs batch"
         : > "$SESSION_DIR/state/tmp/.perms.txt"
         while IFS= read -r _sub; do
             [ -z "$_sub" ] && continue
@@ -1544,25 +1576,86 @@ st_subdomains() {
 
     return 0
 }
+launch_nmap_bg() {
+    local _op="$SESSION_DIR/hosts/open-ports.txt"
+    [ -s "$_op" ] || return 0
+    command -v nmap >/dev/null 2>&1 || return 0
+    local _ndir="$SESSION_DIR/findings/probes/nmap"
+    mkdir -p "$_ndir"
+    local _nlog="$_ndir/nmap-bg.log"
+    local _tmp="$SESSION_DIR/state/tmp/.nmap-hosts.txt"
+    awk -F: '{h=$1; p[h]=p[h]","$2} END{for(h in p) if(h!="") print h, substr(p[h],2)}' "$_op" > "$_tmp"
+    [ -s "$_tmp" ] || { rm -f "$_tmp"; return 0; }
+    (
+        exec 300>&- 7>&- 6>&-
+        while IFS=' ' read -r _nh _np; do
+            sleep $((RANDOM % 20 + 5))
+            printf '===== %s (%s) %s =====\n' "$_nh" "$_np" "$(date +%H:%M:%S)" >> "$_nlog"
+            nmap -Pn -sT -sV --script "default and safe" --version-light -T2 --randomize-hosts --data-length 24 -oA "$_ndir/$_nh" -p "$_np" "$_nh" >> "$_nlog" 2>&1
+            sed -i -e '/specified some options that require raw socket access/d' -e '/These options will not be honored without the necessary privileges/d' "$_ndir/$_nh.nmap" "$_nlog" 2>/dev/null || true
+        done < "$_tmp"
+        printf '%s\n' "== nmap background sweep complete ==" >> "$_nlog"
+        rm -f "$_tmp"
+    ) </dev/null >/dev/null 2>&1 &
+    out "${C_Y}[INFO]${C_R} ${C_RED}nmap${C_R} background fingerprinting -> ${_nlog}"
+    if [ "${NMAP_TAB:-0}" = "1" ]; then
+        _tailcmd="bash -c \"tail -f '$_nlog'; exec bash\""
+        if [ -n "${TMUX:-}" ]; then tmux new-window "tail -f '$_nlog'" >/dev/null 2>&1 || true
+        elif command -v x-terminal-emulator >/dev/null 2>&1; then x-terminal-emulator -e "$_tailcmd" >/dev/null 2>&1 &
+        elif command -v exo-open >/dev/null 2>&1; then exo-open --launch TerminalEmulator >/dev/null 2>&1 &
+        elif command -v xdg-terminal-exec >/dev/null 2>&1; then xdg-terminal-exec tail -f "$_nlog" >/dev/null 2>&1 &
+        elif command -v xfce4-terminal >/dev/null 2>&1; then xfce4-terminal --tab -e "$_tailcmd" >/dev/null 2>&1 &
+        elif command -v gnome-terminal >/dev/null 2>&1; then gnome-terminal --tab -- bash -c "tail -f '$_nlog'; exec bash" >/dev/null 2>&1 &
+        elif command -v kitty >/dev/null 2>&1; then kitty @ launch --type=tab tail -f "$_nlog" >/dev/null 2>&1 &
+        fi
+    fi
+}
+
 st_hosts_lite() {
     mkdir -p "$SESSION_DIR/hosts" 2>/dev/null || true
     [ -s "$SESSION_DIR/subdomains/subdomains-final.txt" ] || { out "${C_Y}No subs, skipping hosts${C_R}"; return; }
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ naabu${C_R} -l subdomains-final.txt -port \$NAABU_PORTS -rate 1000 -c 50 -silent -no-color   (no-sudo connect scan -> hosts/open-ports.txt for manual nmap)"
-    timeout --foreground 600 naabu -silent -no-color -l "$SESSION_DIR/subdomains/subdomains-final.txt" -port "$NAABU_PORTS" -rate 1000 -c 50 -o "$SESSION_DIR/hosts/open-ports.txt" >/dev/null 2>"$SESSION_DIR/state/tmp/naabu.err" || true
+    _ports_shuffled="$(printf '%s' "$NAABU_PORTS" | tr ',' '\n' | shuf | paste -sd, -)"
+    _syn_mode=""
+    if command -v getcap >/dev/null 2>&1 && getcap "$(locate_tool naabu)" 2>/dev/null | grep -q cap_net_raw; then
+        _syn_mode="cap"
+    elif sudo -v 2>/dev/null; then
+        _syn_mode="sudo"
+    fi
+    if [ "$_syn_mode" = "cap" ]; then
+        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ naabu${C_R} -l subdomains-final.txt -p <shuffled 29> -scan-type syn -exclude-cdn -retries $NAABU_RETRIES -rate $NAABU_RATE"
+        timeout --foreground 600 naabu -silent -no-color -l "$SESSION_DIR/subdomains/subdomains-final.txt" -p "$_ports_shuffled" -scan-type syn -retries "$NAABU_RETRIES" -exclude-cdn -warm-up-time 3 -rate "$NAABU_RATE" -o "$SESSION_DIR/hosts/open-ports.txt" >/dev/null 2>"$SESSION_DIR/state/tmp/naabu.err" || true
+    elif [ "$_syn_mode" = "sudo" ]; then
+        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ sudo naabu${C_R} -l subdomains-final.txt -p <shuffled 29> -scan-type syn -exclude-cdn -rate $NAABU_RATE"
+        timeout --foreground 600 sudo naabu -silent -no-color -l "$SESSION_DIR/subdomains/subdomains-final.txt" -p "$_ports_shuffled" -scan-type syn -retries "$NAABU_RETRIES" -exclude-cdn -warm-up-time 3 -rate "$NAABU_RATE" 2>/dev/null | sort -u > "$SESSION_DIR/hosts/open-ports.txt" || true
+    else
+        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ naabu${C_R} -l subdomains-final.txt -p <shuffled 29> -scan-type connect -rate $NAABU_RATE (fallback)"
+        timeout --foreground 600 naabu -silent -no-color -l "$SESSION_DIR/subdomains/subdomains-final.txt" -p "$_ports_shuffled" -scan-type connect -retries "$NAABU_RETRIES" -rate "$NAABU_RATE" -o "$SESSION_DIR/hosts/open-ports.txt" >/dev/null 2>"$SESSION_DIR/state/tmp/naabu.err" || true
+    fi
     rm -f "$SESSION_DIR/state/tmp/naabu.err"
+    if [ ! -s "$SESSION_DIR/hosts/open-ports.txt" ]; then
+        out "${C_Y}[INFO] zero open ports (CDN exclusion may have pruned everything), rescanning without -exclude-cdn${C_R}"
+        if [ "$_syn_mode" = "cap" ]; then
+            timeout --foreground 600 naabu -silent -no-color -l "$SESSION_DIR/subdomains/subdomains-final.txt" -p "$_ports_shuffled" -scan-type syn -retries "$NAABU_RETRIES" -warm-up-time 3 -rate "$NAABU_RATE" -o "$SESSION_DIR/hosts/open-ports.txt" >/dev/null 2>"$SESSION_DIR/state/tmp/naabu.err" || true
+        elif [ "$_syn_mode" = "sudo" ]; then
+            timeout --foreground 600 sudo naabu -silent -no-color -l "$SESSION_DIR/subdomains/subdomains-final.txt" -p "$_ports_shuffled" -scan-type syn -retries "$NAABU_RETRIES" -warm-up-time 3 -rate "$NAABU_RATE" 2>/dev/null | sort -u > "$SESSION_DIR/hosts/open-ports.txt" || true
+        else
+            timeout --foreground 600 naabu -silent -no-color -l "$SESSION_DIR/subdomains/subdomains-final.txt" -p "$_ports_shuffled" -scan-type connect -retries "$NAABU_RETRIES" -rate "$NAABU_RATE" -o "$SESSION_DIR/hosts/open-ports.txt" >/dev/null 2>"$SESSION_DIR/state/tmp/naabu.err" || true
+        fi
+        rm -f "$SESSION_DIR/state/tmp/naabu.err"
+    fi
     [ -s "$SESSION_DIR/hosts/open-ports.txt" ] || { out "${C_Y}No open ports, skipping httpx${C_R}"; return; }
-    out "${C_Y}  [INFO] nmap follow-up: nmap -sV -sC -p \$(grep $DOMAIN hosts/open-ports.txt | cut -d: -f2 | sort -un | paste -sd,) $DOMAIN${C_R}"
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l hosts/open-ports.txt -threads 200 -timeout 8 -status-code -tech-detect -title -location -ip -cname -tls-grab -websocket -favicon   (metadata on open ports only)"
+    launch_nmap_bg
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l hosts/open-ports.txt -threads 200 -timeout 8 -status-code -tech-detect -title -location -ip -cname -tls-grab -websocket -favicon"
     timeout --foreground 900 httpx -silent -no-color -l "$SESSION_DIR/hosts/open-ports.txt" -threads 200 -timeout 8 -status-code -tech-detect -title -location -ip -cname -tls-grab -websocket -favicon 2>/dev/null | awk '!seen[$0]++' > "$SESSION_DIR/hosts/httpx-raw.txt" || true
     grep -E '^https?://' "$SESSION_DIR/hosts/httpx-raw.txt" | awk '{print $1}' | sort -u | awk '{rest=substr($0, index($0,"//")+2); if(!(rest in out) || $0 ~ /^https:/){out[rest]=$0}} END{for(k in out) print out[k]}' | sort > "$SESSION_DIR/hosts/hosts-live.txt"
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -u '$DOMAIN' -status-code -tech-detect -title -location -ip -cname   (apex spot-check)"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -u '$DOMAIN' -status-code -tech-detect -title -location -ip -cname"
     if ! grep -qE "^https?://${DOMAIN_ESCAPED}$" "$SESSION_DIR/hosts/hosts-live.txt" 2>/dev/null; then
         timeout --foreground 300 httpx -silent -no-color -u "$DOMAIN" -status-code -tech-detect -title -location -ip -cname 2>/dev/null > "$SESSION_DIR/state/tmp/.apex.txt" || true
         grep -E '^https?://' "$SESSION_DIR/state/tmp/.apex.txt" 2>/dev/null | awk '{print $1}' >> "$SESSION_DIR/hosts/hosts-live.txt"
         sort -u "$SESSION_DIR/hosts/hosts-live.txt" -o "$SESSION_DIR/hosts/hosts-live.txt"
         rm -f "$SESSION_DIR/state/tmp/.apex.txt"
     fi
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ openssl${C_R} s_client -connect <host>:443 -servername <host> | openssl x509 -noout -text   (TLS SAN mining, all live hosts)"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ openssl${C_R} s_client -connect <host>:443 -servername <host> | openssl x509 -noout -text"
     cat "$SESSION_DIR/hosts/hosts-live.txt" | xargs -d '\n' -P 10 -I {} bash -c '
         turl="$1"
         thost=$(printf "%s" "$turl" | sed -E "s|^https?://([^:/]+).*|\1|")
@@ -1590,7 +1683,7 @@ st_hosts_lite() {
     rm -f "$SESSION_DIR/state/tmp/.tls-sans.txt"
 }
 st_archive() {
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ waymore${C_R} -i '$DOMAIN' -mode U -oU urls/archive-waymore.txt  (1 try x300s, CDX fallback if weak)"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ waymore${C_R} -i '$DOMAIN' -mode U -oU urls/archive-waymore.txt"
     timeout --foreground 300 waymore -i "$DOMAIN" -mode U -oU "$SESSION_DIR/urls/archive-waymore.txt" >"$SESSION_DIR/state/tmp/waymore.out" 2>"$SESSION_DIR/state/tmp/waymore.err" || true
     if [ ! -s "$SESSION_DIR/urls/archive-waymore.txt" ] || [ "$(wc -l < "$SESSION_DIR/urls/archive-waymore.txt" | tr -d ' ')" -lt 10 ]; then
         sleep 5
@@ -1641,7 +1734,7 @@ st_crawl() {
         fi
     done < "$SESSION_DIR/hosts/hosts-live.txt"
     _s200n=$(wc -l < "$SESSION_DIR/findings/probes/soft-200-hosts.txt" 2>/dev/null | tr -d ' '); _s200n=${_s200n:-0}
-    [ "$_s200n" -gt 0 ] && out "${C_Y}  soft-200 catch-all detected on ${_s200n} hosts (identical bodies) >> findings/probes/soft-200-hosts.txt${C_R}"
+    [ "$_s200n" -gt 0 ] && out "${C_Y}soft-200 catch-all detected on ${_s200n} hosts (identical bodies) >> findings/probes/soft-200-hosts.txt${C_R}"
 
     out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ katana${C_R} -d 5 -c 20 -rl "$KATANA_RL" -silent -iqp ${KATANA_HEADLESS:+--headless} -js-crawl -jsluice -known-files all -fs rdn -H 'User-Agent: ***' -ef '$katana_ef' < urls/hosts-katana.txt | awk '!seen[\$0]++' >> urls/crawl-katana.txt (chunked) || true"
     : > "$SESSION_DIR/urls/crawl-katana.txt"
@@ -1749,7 +1842,7 @@ st_js_pipeline() {
         "$SESSION_DIR/state/sm-done.txt" "$SESSION_DIR/state/obf-done.txt" "$SESSION_DIR/state/obf-hits.txt" \
         "$SESSION_DIR/state/pretty-done.txt" "$SESSION_DIR/state/pretty-hashes.txt" "$SESSION_DIR/state/page-hashes.txt"
 
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 10 \$origin/{/sw.js,/service-worker.js,/worker.js,/precache-manifest.js}   (first-30 live origins) >> findings/surface/service-worker-urls.txt"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 10 \$origin/{/sw.js,/service-worker.js,/worker.js,/precache-manifest.js} >> findings/surface/service-worker-urls.txt"
     : > "$SESSION_DIR/findings/surface/service-worker-urls.txt"
     _swpats="$SESSION_DIR/state/tmp/.sw-patterns.txt"
     if [ -s "$HOME/github-tools/hunt-custom.txt" ]; then
@@ -1807,7 +1900,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
         pending=$(wc -l < "$SESSION_DIR/state/tmp/.js-pending.txt" | tr -d ' ')
 
         if [ "$pending" -gt 0 ]; then
-            out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .js-pending.txt -sr -srd tmp/httpx-js -json -rl $KATANA_RL   (primary JS fetch: $pending files, Go TLS fingerprint)"
+            out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .js-pending.txt -sr -srd tmp/httpx-js -json -rl $KATANA_RL"
             awk '{n=$0; sub(/\?.*/,"",n); sub(/.*\//,"",n); if (n ~ /[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/) { if(!seen[n]++) print } else print }' "$SESSION_DIR/state/tmp/.js-pending.txt" > "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" 2>/dev/null || cp "$SESSION_DIR/state/tmp/.js-pending.txt" "$SESSION_DIR/state/tmp/.js-pending-dedup.txt"
             _pd=$(wc -l < "$SESSION_DIR/state/tmp/.js-pending-dedup.txt" | tr -d ' ')
             [ "${_pd:-0}" -gt 0 ] && out "${C_W}basename dedup: $pending -> $_pd unique chunks (already-unique if equal)${C_R}"
@@ -1851,7 +1944,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
             local _json_pending
             _json_pending=$(wc -l < "$SESSION_DIR/state/tmp/.json-pending.txt" | tr -d ' ')
             if [ "${_json_pending:-0}" -gt 0 ]; then
-                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .json-pending.txt -sr -srd tmp/httpx-json -json -rl $KATANA_RL   (JSON fetch: $_json_pending files, Go TLS)"
+                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .json-pending.txt -sr -srd tmp/httpx-json -json -rl $KATANA_RL"
                 : > "$SESSION_DIR/state/tmp/.js-progress.log"
                 _httpx_wave "$SESSION_DIR/state/tmp/.json-pending.txt" json
                 comm -23 <(sort -u "$SESSION_DIR/state/tmp/.json-pending.txt") <(sort -u "$SESSION_DIR/state/tmp/httpx-json.ok") > "$SESSION_DIR/state/tmp/.json-curl-retry.txt"
@@ -1872,7 +1965,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
             local _art_pending
             _art_pending=$(wc -l < "$SESSION_DIR/state/tmp/.art-pending.txt" | tr -d ' ')
             if [ "${_art_pending:-0}" -gt 0 ]; then
-                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .art-pending.txt -sr -srd tmp/httpx-art -json -rl $KATANA_RL   (artifacts fetch: $_art_pending files, Go TLS)"
+                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .art-pending.txt -sr -srd tmp/httpx-art -json -rl $KATANA_RL"
                 : > "$SESSION_DIR/state/tmp/.js-progress.log"
                 _httpx_wave "$SESSION_DIR/state/tmp/.art-pending.txt" art
                 comm -23 <(sort -u "$SESSION_DIR/state/tmp/.art-pending.txt") <(sort -u "$SESSION_DIR/state/tmp/httpx-art.ok") > "$SESSION_DIR/state/tmp/.art-curl-retry.txt"
@@ -1902,7 +1995,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
             } | awk '{ u=$0; sub(/\?.*/,"",u); if(!(u in seen)){seen[u]=1; print} }' > "$SESSION_DIR/state/tmp/.pages-all-ranked.txt"
             head -n "$RECONLY_MAX_PAGES" "$SESSION_DIR/state/tmp/.pages-all-ranked.txt" > "$SESSION_DIR/state/tmp/.pages-temp.txt"
             _pgcap=$(wc -l < "$SESSION_DIR/state/tmp/.pages-all-ranked.txt" | tr -d ' ')
-            [ "${_pgcap:-0}" -gt "$RECONLY_MAX_PAGES" ] && out "  pages capped: $RECONLY_MAX_PAGES of $_pgcap ranked (raise RECONLY_MAX_PAGES for more inline-JS surface)"
+            [ "${_pgcap:-0}" -gt "$RECONLY_MAX_PAGES" ] && out "  pages capped: $RECONLY_MAX_PAGES of $_pgcap ranked"
             rm -f "$SESSION_DIR/state/tmp/.pages-all-ranked.txt" "$SESSION_DIR/state/tmp/.pages-priority.txt" "$SESSION_DIR/state/tmp/.pages-rest.txt"
             if [ -s "$SESSION_DIR/state/tmp/.s200-sigs.tsv" ]; then
                 _pgbefore=$(wc -l < "$SESSION_DIR/state/tmp/.pages-temp.txt" | tr -d ' ')
@@ -1920,7 +2013,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
             local page_count
             page_count=$(wc -l < "$SESSION_DIR/state/tmp/.pages-temp.txt" | tr -d ' ')
             if [ "$page_count" -gt 0 ]; then
-                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .pages-temp.txt -sr -srd tmp/httpx-pages -json -rl $KATANA_RL   (pages fetch: $page_count pages, Go TLS)"
+                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ httpx${C_R} -l .pages-temp.txt -sr -srd tmp/httpx-pages -json -rl $KATANA_RL"
                 : > "$SESSION_DIR/state/tmp/.js-progress.log"
                 _jd="$SESSION_DIR/state/tmp/httpx-pages"
                 : > "$SESSION_DIR/state/tmp/.pg-httpx-ok.txt"
@@ -1940,7 +2033,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
                         _fail_streak=0
                     fi
                     if [ "$_fail_streak" -ge 3 ]; then
-                        out "${C_Y}[stealth] wave abort: 3 consecutive page chunks >=95% failure -- server down for us, skipping rest${C_R}"
+                        out "${C_Y}[stealth] wave abort: 3 consecutive page chunks >=95% failure, server down for us, skipping rest${C_R}"
                         cat "$SESSION_DIR/state/tmp/.pgchunk-"* 2>/dev/null >> "$SESSION_DIR/state/tmp/.js-failed.txt"
                         rm -f "$SESSION_DIR/state/tmp/.pgchunk-"*
                         break
@@ -1978,7 +2071,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
                 [ -n "$raw" ] && printf '%s\n' "$raw"
             done | awk 'NF' | sort -u > "$SESSION_DIR/state/tmp/.sm-refs.txt"
             if [ -s "$SESSION_DIR/state/tmp/.sm-refs.txt" ]; then
-                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ recover_one_sourcemap${C_R}: cat .sm-refs.txt | xargs -P $RECONLY_JS_THREADS -I {} bash -c 'recover_one_sourcemap "\$1"' _ {}"
+                out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ recover_one_sourcemap${C_R}: cat .sm-refs.txt | ${C_RED}xargs${C_R} -P $RECONLY_JS_THREADS -I {} bash -c 'recover_one_sourcemap "\$1"' _ {}"
                 cat "$SESSION_DIR/state/tmp/.sm-refs.txt" | xargs -d '\n' -P "$RECONLY_JS_THREADS" -I {} bash -c 'recover_one_sourcemap "$1"' _ {}
             fi
             rm -f "$SESSION_DIR/state/tmp/.sm-refs.txt"
@@ -2094,7 +2187,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
         rm -f "$SESSION_DIR/state/tmp/.rec-new.txt" "$SESSION_DIR/state/tmp/.rec-fetched.txt" "$SESSION_DIR/state/tmp/.rec-known.txt"
         if [ "$pending_disc" -eq 0 ]; then
             rm -f "$SESSION_DIR/state/tmp/.rec-pending.txt"
-            out "${C_W}Fixpoint reached — no new JS${C_R}"
+            out "${C_W}Fixpoint reached, no new JS${C_R}"
             break
         fi
         out "${C_Y}$pending_disc new JS chunks queued for next round${C_R}"
@@ -2110,7 +2203,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -f -m 1
 
 }
 st_analysis_local() {
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ jsluice${C_R} secrets + urls: find js/{raw,deobf,mapsrc,json} -type f -size -55M \( -name '*.js' -o -name '*.json' \) | xargs -0 -P $PRETTIER_JOBS -n 1 bash -c 'jsluice secrets + jsluice urls' _"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ jsluice${C_R} secrets + urls: find js/{raw,deobf,mapsrc,json} -type f -size -55M \( -name '*.js' -o -name '*.json' \) | ${C_RED}xargs${C_R} -0 -P $PRETTIER_JOBS -n 1 bash -c 'jsluice secrets + jsluice urls' _"
     mkdir -p "$SESSION_DIR/state/tmp/jsluice-out"
     : > "$SESSION_DIR/state/tmp/jsluice-failed.txt"
     : > "$SESSION_DIR/findings/secrets/jsluice-secrets.txt"
@@ -2133,14 +2226,14 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ jsluice${C_R} secrets
     [ "$_jsfail_count" -gt 0 ] && warn_rc "jsluice ($_jsfail_count files failed)" 1
     _jsraw_count=$(find "$SESSION_DIR/js/raw" "$SESSION_DIR/js/mapsrc" -name '*.js' -type f 2>/dev/null | wc -l | tr -d ' ')
     if [ "${_jsraw_count:-0}" -gt 50 ] && [ ! -s "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" ]; then
-        out "${C_Y}[warn] jsluice produced 0 endpoints from $_jsraw_count files -- invocation may have changed${C_R}"
+        out "${C_Y}[warn] jsluice produced 0 endpoints from $_jsraw_count files, invocation may have changed${C_R}"
     fi
     rm -rf "$SESSION_DIR/state/tmp/jsluice-out" "$SESSION_DIR/state/tmp/jsluice-failed.txt"
     local _jsec _jep
     _jsec=$(wc -l < "$SESSION_DIR/findings/secrets/jsluice-secrets.txt" 2>/dev/null | tr -d ' '); _jsec=${_jsec:-0}
     _jep=$(wc -l < "$SESSION_DIR/findings/surface/jsluice-endpoints.txt" 2>/dev/null | tr -d ' '); _jep=${_jep:-0}
 
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ trufflehog${C_R} filesystem js/raw js/mapsrc js/deobf --json | jq -r '[file, match, detector] | join(::) > trufflehog.txt || true"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ trufflehog${C_R} filesystem js/raw js/mapsrc js/deobf --json | ${C_RED}jq${C_R} -r '[file, match, detector] | join(::) > trufflehog.txt || true"
     nice -n 15 timeout --foreground 1200 trufflehog filesystem "$SESSION_DIR/js/raw" "$SESSION_DIR/js/mapsrc" "$SESSION_DIR/js/deobf" "$SESSION_DIR/js/json" "$SESSION_DIR/js/artifacts" --json 2>/dev/null \
       | jq -r '[.SourceMetadata.Data.Filesystem.file // "unknown", (.Redacted // .Raw // "" | gsub("\n";" ") | .[0:160]), .DetectorName, (if .Verified == true then "VERIFIED" else "-" end)] | join("::")' 2>/dev/null \
       | sed -e 's|js/raw/||' -e 's|js/mapsrc/||' -e 's|js/deobf/||' -e 's|js/json/||' -e 's|js/artifacts/||' \
@@ -2154,7 +2247,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ gitleaks${C_R} detect
         jq -r '.[] | "\(.File // "?")::\(.RuleID // .Description // "?")::\((.Match // .Secret // "") | .[0:120])"' "$SESSION_DIR/state/tmp/gitleaks.json" 2>/dev/null | sort -u > "$SESSION_DIR/findings/secrets/gitleaks.txt"
         rm -f "$SESSION_DIR/state/tmp/gitleaks.json"
     else
-        out "${C_Y}[warn] gitleaks not installed -- skipping${C_R}"
+        out "${C_Y}[warn] gitleaks not installed, skipping${C_R}"
     fi
 
 
@@ -2163,12 +2256,12 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ noseyparker${C_R} sca
         rm -rf "$SESSION_DIR/state/tmp/np-data"
         nice -n 15 timeout --foreground 900 noseyparker scan --datastore "$SESSION_DIR/state/tmp/np-data" "$SESSION_DIR/js" >/dev/null 2>"$SESSION_DIR/state/tmp/np.err" || warn_rc "noseyparker" "$?"
         if [ ! -d "$SESSION_DIR/state/tmp/np-data" ]; then
-            out "${C_Y}[warn] noseyparker produced no datastore -- stderr: $(tail -2 "$SESSION_DIR/state/tmp/np.err" 2>/dev/null | tr '\n' ' | ' | cut -c1-160)${C_R}"
+            out "${C_Y}[warn] noseyparker produced no datastore, stderr: $(tail -2 "$SESSION_DIR/state/tmp/np.err" 2>/dev/null | tr '\n' ' | ' | cut -c1-160)${C_R}"
         fi
         nice -n 15 timeout --foreground 300 noseyparker report --datastore "$SESSION_DIR/state/tmp/np-data" > "$SESSION_DIR/findings/secrets/noseyparker.txt" 2>/dev/null || true
         rm -rf "$SESSION_DIR/state/tmp/np-data" "$SESSION_DIR/state/tmp/np.err"
     else
-        out "${C_Y}[warn] noseyparker not installed -- skipping${C_R}"
+        out "${C_Y}[warn] noseyparker not installed, skipping${C_R}"
     fi
 
 
@@ -2181,14 +2274,14 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ syft${C_R} dir:<manif
             nice -n 15 timeout --foreground 600 syft dir:"$_syft_root" -o json > "$SESSION_DIR/state/tmp/sbom.json" 2>/dev/null || warn_rc "syft" 1
             nice -n 15 timeout --foreground 600 grype sbom:"$SESSION_DIR/state/tmp/sbom.json" -o json > "$SESSION_DIR/state/tmp/grype.json" 2>/dev/null || warn_rc "grype" 1
         else
-            out "${C_W}syft/grype skipped -- no package manifests anywhere in the corpus (retire covers bundled-lib CVEs)${C_R}"
+            out "${C_W}syft/grype skipped, no package manifests anywhere in the corpus (retire covers bundled-lib CVEs)${C_R}"
         fi
         jq -r '.matches[]? | "vuln|\(.artifact.name)@\(.artifact.version)|\(.vulnerability.id)|\(.vulnerability.severity)"' "$SESSION_DIR/state/tmp/grype.json" 2>/dev/null | sort -u > "$SESSION_DIR/findings/analysis/grype.txt"
         rm -f "$SESSION_DIR/state/tmp/sbom.json" "$SESSION_DIR/state/tmp/grype.json"
         local _gc
         _gc=$(wc -l < "$SESSION_DIR/findings/analysis/grype.txt" 2>/dev/null | tr -d ' '); _gc=${_gc:-0}
     else
-        out "${C_Y}[warn] syft/grype not installed -- skipping${C_R}"
+        out "${C_Y}[warn] syft/grype not installed, skipping${C_R}"
     fi
 
 _nhc=0; [ -s "$HOME/github-tools/hunt-custom.txt" ] && _nhc=$(grep -vc '^#\|^$' "$HOME/github-tools/hunt-custom.txt" 2>/dev/null | tr -d ' '); _nhc=${_nhc:-0}
@@ -2412,7 +2505,7 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R}/grep -P -o '
         sort -u "$SESSION_DIR/findings/analysis/postmessage-verdicts.txt" -o "$SESSION_DIR/findings/analysis/postmessage-verdicts.txt"
     fi
 
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} web.archive.org/cdx/search/cdx?url=<js> + /web/<ts>id_/<js>   (150 JS URLs x historical snapshots)"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} web.archive.org/cdx/search/cdx?url=<js> + /web/<ts>id_/<js>"
     : > "$SESSION_DIR/findings/secrets/wayback-secrets.txt"
     {
         [ -s "$SESSION_DIR/state/js-map.txt" ] && cut -d'|' -f2 "$SESSION_DIR/state/js-map.txt"
@@ -2533,7 +2626,7 @@ YAMLEOF
           | jq -r '.results[] | "\(.path):\(.start.line):\(.check_id): \(.extra.message)"' > "$SESSION_DIR/findings/analysis/semgrep-findings.txt" 2>/dev/null || _sg_rc=$?
         if [ "${_sg_rc:-0}" -ge 2 ] || [ ! -s "$SESSION_DIR/findings/analysis/semgrep-findings.txt" ]; then
             warn_rc "semgrep (registry)" "${_sg_rc:-1}"
-            out "${C_Y}[warn] semgrep registry/config failed (rc=${_sg_rc:-1}, output empty) -- falling back to local rules only${C_R}"
+            out "${C_Y}[warn] semgrep registry/config failed (rc=${_sg_rc:-1}, output empty), falling back to local rules only${C_R}"
             local _sgl_rc=0
             nice -n 15 timeout --foreground 900 semgrep scan --jobs "$PRETTIER_JOBS" --config="$SESSION_DIR/state/reconly-custom.yml" --json --metrics=off \
                 "$SESSION_DIR/js/mapsrc" "$SESSION_DIR/js/formatted" "$SESSION_DIR/js/deobf" 2>>"$SESSION_DIR/state/tmp/semgrep.err" \
@@ -2584,11 +2677,11 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ codeql${C_R} database
             fi
         fi
         else
-            out "${C_Y}[warn] codeql pack unavailable -- skipping codeql analysis this run${C_R}"
+            out "${C_Y}[warn] codeql pack unavailable, skipping codeql analysis this run${C_R}"
         fi
     fi
 
-out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ retire${C_R} --path js --outputformat json | jq -r 'component@version -- vuln' >> vulnerable-libs.txt || true"
+out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ retire${C_R} --path js --outputformat json | ${C_RED}jq${C_R} -r 'component@version, vuln'"
     : > "$SESSION_DIR/findings/analysis/vulnerable-libs.txt"
     timeout --foreground 600 retire --path "$SESSION_DIR/js" --outputformat json 2>/dev/null \
       | jq -r 'if type=="array" then .[] else . end | (.results // empty)[] | "\(.component)@\(.version) -- \(.vulnerabilities[0].identifiers.summary // "vuln")"' >> "$SESSION_DIR/findings/analysis/vulnerable-libs.txt" || true
@@ -2678,6 +2771,9 @@ out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ rg${C_R} -a -C 2 -F '
         [ -s "$_cf" ] || continue
         _cn=$((_cn+1))
     done
+    if [ "$_cn" -eq 0 ]; then
+        rmdir "$SESSION_DIR/findings/analysis/ctx" 2>/dev/null
+    fi
 }
 
 st_quick_probes() {
@@ -2685,7 +2781,7 @@ st_quick_probes() {
     [ -s "$hl" ] || { out "${C_Y}No live hosts, skipping quick probes${C_R}"; return; }
     mkdir -p "$SESSION_DIR/findings/probes"
     awk -F/ '{print $1"//"$3}' "$hl" | grep -vE ':[0-9]+$' | sort -u | head -40 > "$SESSION_DIR/state/tmp/.qp-origins.txt"
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -o /dev/null -D - <origin>   (top-40 live origins: headers + cookie flags + CORS reflection)"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} -s -o /dev/null -D - <origin>"
     : > "$SESSION_DIR/findings/probes/cookie-flags.txt"
     : > "$SESSION_DIR/findings/probes/cors-misconfig.txt"
     run_qp_origin() {
@@ -2738,7 +2834,7 @@ st_quick_probes() {
     if [ ! -s "$_qppats" ]; then
         printf '%s\n' 'AKIA[0-9A-Z]{16}|gh[pousr]_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN[A-Z ]*PRIVATE KEY-----' > "$_qppats"
     fi
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} '<url + zzcanary123>'   (60 URLs reflection probe + body secret-scan)"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} '<url + zzcanary123>'"
     : > "$SESSION_DIR/findings/probes/reflected-params.txt"
     { [ -s "$SESSION_DIR/urls/urls-reflection-candidates.txt" ] && head -60 "$SESSION_DIR/urls/urls-reflection-candidates.txt"; } \
     | xargs -d '\n' -P 15 -I {} bash -c '
@@ -2795,7 +2891,7 @@ st_quick_probes() {
     rm -f "$SESSION_DIR/state/tmp/.qp-he.txt"
 
     if [ -s "$SESSION_DIR/findings/secrets/baas-urls.txt" ]; then
-        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} <project>.firebaseio.com/.json + /.settings/rules.json   (firebase open-DB probe)"
+        out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ curl${C_R} <project>.firebaseio.com/.json + /.settings/rules.json"
         : > "$SESSION_DIR/findings/probes/cloud-misconfig.txt"
         grep -oE '[a-z0-9][a-z0-9.-]+\.firebaseio\.com' "$SESSION_DIR/findings/secrets/baas-urls.txt" 2>/dev/null | sort -u | head -10 | while read -r _fb; do
             _code=$(curl -s -o /dev/null -w "%{http_code}" -m 8 "https://$_fb/.json" 2>/dev/null)
@@ -2836,7 +2932,7 @@ st_quick_probes() {
             printf '%s' "$_gq" | grep -q '__schema' && echo "[HIGH] GraphQL introspection ENABLED: $_go$_gp" >> "$SESSION_DIR/findings/probes/cloud-misconfig.txt"
         done
     done
-    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ dnsx${C_R} -l dead-hosts -cname + httpx CNAME grep   (takeover fingerprints + passive graphql/ws lists)"
+    out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ dnsx${C_R} -l dead-hosts -cname + httpx CNAME grep"
     : > "$SESSION_DIR/findings/probes/takeover.txt"
     [ -s "$SESSION_DIR/hosts/httpx-raw.txt" ] && grep -iE 'cname.*(s3[.-]amazonaws|s3-website|azurewebsites|azureedge|cloudapp|github\.io|herokuapp|herokussl|fastly\.net|fastlylb|myshopify|shopify|unbouncepages|webflow|netlify|surge\.sh|pantheon|tumblr|wpengine|kinsta|fly\.dev|onrender|digitaloceanspaces|blob\.core\.windows)' "$SESSION_DIR/hosts/httpx-raw.txt" 2>/dev/null | head -20 >> "$SESSION_DIR/findings/probes/takeover.txt"
     awk -F/ '{print $3}' "$hl" | sed 's/:.*//' | sort -u > "$SESSION_DIR/state/tmp/.qp-live-hosts.txt"
@@ -2914,22 +3010,690 @@ st_quick_probes() {
         [ -s "$_pf" ] || continue
     done
 }
+REPORT_TEMPLATE=$(cat <<'REPORT_HTML_EOF'
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title id="pageTitle">reconly report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+:root{
+  /* light = default */
+  --bg:#f3f3f3;
+  --panel:#ffffff;
+  --panel-2:#f7f7f7;
+  --border:#e2e2e2;
+  --accent:#d13438;
+  --accent-dim:#f3d3d4;
+  --amber:#a05a00;
+  --text:#1b1b1b;
+  --muted:#6e6e6e;
+  --danger:#c42b2b;
+  --glow:rgba(209,52,56,.07);
+  --scan:rgba(0,0,0,.015);
+  --radius:12px;
+  --radius-sm:8px;
+  --sidebar-w:280px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1f1f1f; --panel:#272727; --panel-2:#2e2e2e; --border:#3a3a3a;
+    --accent:#ff4552; --accent-dim:#5a2228; --amber:#ffb454;
+    --text:#f2f2f2; --muted:#9c9c9c; --danger:#ff5f6d;
+    --glow:rgba(255,69,82,.09); --scan:rgba(255,255,255,.012);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1f1f1f; --panel:#272727; --panel-2:#2e2e2e; --border:#3a3a3a;
+  --accent:#ff4552; --accent-dim:#5a2228; --amber:#ffb454;
+  --text:#f2f2f2; --muted:#9c9c9c; --danger:#ff5f6d;
+  --glow:rgba(255,69,82,.09); --scan:rgba(255,255,255,.012);
+}
+:root[data-theme="light"]{
+  --bg:#f3f3f3; --panel:#ffffff; --panel-2:#f7f7f7; --border:#e2e2e2;
+  --accent:#d13438; --accent-dim:#f3d3d4; --amber:#a05a00;
+  --text:#1b1b1b; --muted:#6e6e6e; --danger:#c42b2b;
+  --glow:rgba(209,52,56,.07); --scan:rgba(0,0,0,.015);
+}
+*{box-sizing:border-box;}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+html,body{height:100%;margin:0;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'JetBrains Mono',monospace;
+  font-size:13.5px;
+  overflow:hidden;
+  background-image:
+    radial-gradient(circle at 15% 10%, var(--glow), transparent 40%),
+    repeating-linear-gradient(0deg, var(--scan) 0px, var(--scan) 1px, transparent 1px, transparent 3px);
+  transition:background-color .2s ease, color .2s ease;
+}
+.boot{
+  position:fixed;inset:0;z-index:50;background:var(--bg);
+  display:flex;align-items:center;justify-content:center;
+  font-family:'JetBrains Mono',monospace;
+}
+.boot pre{color:var(--accent);font-size:13px;line-height:1.6;margin:0;white-space:pre-wrap;max-width:560px;padding:0 20px;}
+.boot .cur{display:inline-block;width:7px;height:14px;background:var(--accent);vertical-align:-2px;animation:blink 1s steps(1) infinite;}
+@keyframes blink{50%{opacity:0;}}
+.app{
+  display:none;
+  height:100%;
+  grid-template-rows:auto 1fr;
+  grid-template-columns:1fr;
+}
+.app.show{display:grid;}
+
+header.top{
+  border-bottom:1px solid var(--border);
+  padding:4px 14px calc(4px + env(safe-area-inset-top,0px)) 14px;
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:3px 14px;
+  background:linear-gradient(180deg, var(--glow), transparent);
+  transition:background-color .2s ease, border-color .2s ease;
+}
+.theme-toggle{
+  flex:none;width:24px;height:24px;border-radius:999px;
+  border:1px solid var(--border);background:var(--panel-2);color:var(--text);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;line-height:1;
+  transition:background .15s, transform .1s, border-color .2s;
+}
+.theme-toggle:hover{background:var(--panel);border-color:var(--accent-dim);}
+.theme-toggle:active{transform:scale(.9);}
+.hdr-right{display:flex;align-items:center;gap:18px;}
+header.top .idline{font-family:'JetBrains Mono',monospace;font-weight:500;font-size:12px;color:var(--muted);letter-spacing:.1px;}
+header.top .idline b{color:var(--accent);font-weight:600;}
+.stats{display:flex;gap:13px;font-size:10.5px;color:var(--muted);}
+.stats span b{color:var(--text);font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;display:block;line-height:1.1;}
+
+.body{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) 6px 1fr;
+  min-height:0;
+  overflow:hidden;
+}
+.resizer{
+  cursor:col-resize;background:transparent;position:relative;
+}
+.resizer::after{
+  content:'';position:absolute;top:0;bottom:0;left:2px;right:2px;background:var(--border);
+  transition:background .15s;
+}
+.resizer:hover::after,.resizer.active::after{background:var(--accent);}
+@media (max-width:720px){
+  .body{grid-template-columns:1fr;}
+  .resizer{display:none;}
+  .tree-pane{position:fixed;left:0;top:0;bottom:0;width:78%;max-width:300px;transform:translateX(-100%);transition:transform .25s ease;z-index:30;}
+  .tree-pane.open{transform:translateX(0);box-shadow:20px 0 40px rgba(0,0,0,.5);}
+  .menu-btn{display:inline-flex !important;}
+}
+
+.tree-pane{
+  background:var(--panel);
+  border-right:1px solid var(--border);
+  overflow-y:auto;
+  padding:14px 10px 20px 14px;
+}
+.tree-pane::-webkit-scrollbar{width:8px;}
+.tree-pane::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+
+ul.tree{list-style:none;margin:0;padding-left:14px;border-left:1px dashed var(--border);}
+ul.tree.root{padding-left:0;border-left:none;}
+li.node{position:relative;margin:1px 0;}
+.row{
+  display:flex;align-items:center;gap:6px;
+  padding:4px 9px;border-radius:var(--radius-sm);cursor:pointer;
+  color:var(--muted);white-space:nowrap;user-select:none;
+  transition:background .12s, color .12s;
+}
+.row:hover{background:var(--panel-2);color:var(--text);}
+.row.active{background:rgba(61,255,160,.1);color:var(--accent);}
+.row .glyph{width:14px;text-align:center;flex:none;color:var(--accent-dim);}
+.row.dir .glyph{color:var(--amber);}
+.row .cnt{margin-left:auto;font-size:10px;color:var(--muted);}
+.children{overflow:hidden;max-height:0;transition:max-height .22s ease;}
+.children.open{max-height:1200px;}
+
+.view-pane{display:flex;flex-direction:column;min-height:0;}
+.view-head{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 16px;border-bottom:1px solid var(--border);
+  background:var(--panel-2);
+  transition:background-color .2s ease, border-color .2s ease;
+}
+.menu-btn{display:none;background:none;border:1px solid var(--border);color:var(--muted);border-radius:var(--radius-sm);width:28px;height:28px;align-items:center;justify-content:center;cursor:pointer;flex:none;}
+.path{color:var(--text);font-size:12.5px;flex:1;min-width:0;overflow-x:auto;white-space:nowrap;}
+.path .sep{color:var(--muted);margin:0 3px;}
+.path .file{color:var(--accent);}
+.copy-btn{
+  background:var(--panel);border:1px solid var(--accent-dim);color:var(--accent);
+  border-radius:var(--radius-sm);padding:5px 11px;font-family:inherit;font-size:12px;cursor:pointer;
+  flex:none;transition:background .15s, transform .1s;
+}
+.copy-btn:hover{background:rgba(61,255,160,.08);}
+.copy-btn:active{transform:scale(.96);}
+.copy-btn.done{color:var(--bg);background:var(--accent);border-color:var(--accent);}
+
+.content-wrap{flex:1;overflow:auto;position:relative;}
+.content-wrap::-webkit-scrollbar{width:10px;height:10px;}
+.content-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px;}
+.code-area{display:flex;align-items:stretch;min-height:100%;}
+.gutter{
+  flex:none;padding:18px 12px 60px 14px;text-align:right;white-space:pre;
+  color:var(--border);font-size:11px;line-height:1.65;user-select:none;
+  border-right:1px solid var(--border);
+}
+pre.content{
+  flex:1;margin:0;padding:18px 22px 60px 18px;white-space:pre-wrap;word-break:break-all;font-size:12.8px;line-height:1.65;color:var(--text);
+  overflow-x:auto;
+}
+pre.content code{font-family:inherit;}
+.hljs{background:transparent;color:var(--text);}
+.hljs-comment,.hljs-quote{color:var(--muted);font-style:italic;}
+.hljs-keyword,.hljs-selector-tag,.hljs-tag,.hljs-name,.hljs-built_in,.hljs-type{color:var(--accent);}
+.hljs-string,.hljs-doctag,.hljs-attr,.hljs-regexp,.hljs-template-variable{color:#4e9bff;}
+:root[data-theme="dark"] .hljs-string,:root[data-theme="dark"] .hljs-attr{color:#7fb8ff;}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .hljs-string,:root:not([data-theme="light"]) .hljs-attr{color:#7fb8ff;}}
+.hljs-number,.hljs-literal,.hljs-symbol,.hljs-bullet{color:var(--amber);}
+.hljs-title,.hljs-section,.hljs-selector-id{color:var(--text);font-weight:600;}
+.hljs-meta,.hljs-link{color:var(--muted);}
+.hljs-deletion{color:var(--danger);}
+.hljs-addition{color:var(--accent);}
+.hljs-emphasis{font-style:italic;}
+.hljs-strong{font-weight:700;}
+.empty-hint{color:var(--muted);padding:40px;text-align:center;font-size:12.5px;}
+
+</style>
+</head>
+<body>
+
+<div class="boot" id="boot">
+<pre id="bootText"></pre>
+</div>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="idline" id="idLine">~/reconly/<b id="idDomain">target</b>/run_id</div>
+    <div class="hdr-right">
+      <div class="stats">
+        <span><b id="statTxt">0</b>.txt</span>
+        <span><b id="statTsv">0</b>.tsv</span>
+        <span><b id="statJs">0</b>.js</span>
+        <span><b id="statJson">0</b>.json</span>
+        <span><b id="statHtml">0</b>.html</span>
+        <span><b id="statAll">0</b>all files</span>
+      </div>
+      <button class="theme-toggle" id="themeToggle" title="toggle theme" aria-label="toggle theme">☀</button>
+    </div>
+  </header>
+
+  <div class="body">
+    <nav class="tree-pane" id="treePane"></nav>
+    <div class="resizer" id="resizer"></div>
+    <main class="view-pane">
+      <div class="view-head">
+        <button class="menu-btn" id="menuBtn">☰</button>
+        <div class="path" id="pathLine">— select a file from the tree —</div>
+        <button class="copy-btn" id="copyBtn" style="display:none">copy</button>
+      </div>
+      <div class="content-wrap">
+        <div class="code-area" id="codeArea" style="display:none">
+          <div class="gutter" id="gutter"></div>
+          <pre class="content"><code id="codeEl"></code></pre>
+        </div>
+        <div class="empty-hint" id="emptyHint">Select a file from the tree to view its contents here</div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+(function(){
+  try{
+    const savedW = localStorage.getItem('reconly-sidebar-w');
+    if(savedW) document.documentElement.style.setProperty('--sidebar-w', savedW);
+  }catch(e){}
+  const resizer = document.getElementById('resizer');
+  if(!resizer) return;
+  let dragging = false;
+  const MIN = 40;
+  function onMove(clientX){
+    const max = window.innerWidth - 120;
+    const w = Math.max(MIN, Math.min(max, clientX));
+    document.documentElement.style.setProperty('--sidebar-w', w+'px');
+  }
+  resizer.addEventListener('mousedown', e=>{
+    dragging = true; resizer.classList.add('active');
+    document.body.style.userSelect='none'; document.body.style.cursor='col-resize';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', e=>{ if(dragging) onMove(e.clientX); });
+  window.addEventListener('mouseup', ()=>{
+    if(!dragging) return;
+    dragging = false; resizer.classList.remove('active');
+    document.body.style.userSelect=''; document.body.style.cursor='';
+    try{ localStorage.setItem('reconly-sidebar-w', getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w').trim()); }catch(e){}
+  });
+  resizer.addEventListener('touchstart', ()=>{ dragging = true; }, {passive:true});
+  window.addEventListener('touchmove', e=>{ if(dragging && e.touches[0]) onMove(e.touches[0].clientX); }, {passive:true});
+  window.addEventListener('touchend', ()=>{
+    if(!dragging) return; dragging = false;
+    try{ localStorage.setItem('reconly-sidebar-w', getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w').trim()); }catch(e){}
+  });
+})();
+
+(function(){
+  try{
+    const saved = localStorage.getItem('reconly-theme');
+    if(saved === 'light' || saved === 'dark') document.documentElement.setAttribute('data-theme', saved);
+  }catch(e){}
+})();
+function currentTheme(){
+  const attr = document.documentElement.getAttribute('data-theme');
+  if(attr) return attr;
+  return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function paintToggle(){
+  const btn = document.getElementById('themeToggle');
+  if(btn) btn.textContent = currentTheme() === 'dark' ? '☾' : '☀';
+}
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  try{ localStorage.setItem('reconly-theme', t); }catch(e){}
+  paintToggle();
+}
+document.getElementById('themeToggle').addEventListener('click', ()=> setTheme(currentTheme()==='dark' ? 'light':'dark'));
+paintToggle();
+
+const tree = {};
+
+const RUN_INFO = { domain: "target.example.com", runPath: "~/reconly/target.example.com/RUN_ID" };
+
+(function(){
+  document.title = 'reconly :: ' + RUN_INFO.domain;
+  document.getElementById('pageTitle').textContent = 'reconly :: ' + RUN_INFO.domain;
+  const idx = RUN_INFO.runPath.indexOf(RUN_INFO.domain);
+  const prefix = idx >= 0 ? RUN_INFO.runPath.slice(0, idx) : RUN_INFO.runPath + '/';
+  const suffix = idx >= 0 ? RUN_INFO.runPath.slice(idx + RUN_INFO.domain.length) : '';
+  const idLine = document.getElementById('idLine');
+  idLine.firstChild.textContent = prefix;
+  document.getElementById('idDomain').textContent = RUN_INFO.domain;
+  idLine.lastChild.textContent = suffix;
+})();
+
+function escapeHtml(s){return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+function highlightPlain(text){
+  let h = escapeHtml(text);
+  h = h.replace(/\[(\d{2}:\d{2}:\d{2})\]/g, '<span class="hljs-meta">[$1]</span>');
+  h = h.replace(/\[(CRITICAL|HIGH)\]/g, '<span class="hljs-deletion">[$1]</span>');
+  h = h.replace(/\[(MEDIUM|WARN(?:ING)?)\]/g, '<span class="hljs-number">[$1]</span>');
+  h = h.replace(/\[(LOW|INFO)\]/g, '<span class="hljs-comment">[$1]</span>');
+  h = h.replace(/\[(\d{3})\]/g, '<span class="hljs-number">[$1]</span>');
+  h = h.replace(/^([a-zA-Z_][\w-]*):(?=[ \t])/gm, '<span class="hljs-attr">$1</span>:');
+  h = h.replace(/:(\d{2,5})\b/g, ':<span class="hljs-number">$1</span>');
+  h = h.replace(/\b(curl|dig|nmap|whois|nslookup|nuclei|httpx)\b/g, '<span class="hljs-keyword">$1</span>');
+  h = h.replace(/\b(open|alive|exposed|complete)\b/gi, '<span class="hljs-literal">$1</span>');
+  h = h.replace(/\b([A-Z][A-Z0-9_]{4,})\b/g, '<span class="hljs-built_in">$1</span>');
+  return h;
+}
+
+function linkify(s){
+  s = s.replace(/(\/home\/[^\s<|]*?\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\/)/g, '');
+  s = s.replace(/\b(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#4e9bff;text-decoration:underline">$1</a>');
+  s = s.replace(/FILE: ((?:js|urls|hosts|subdomains|findings|state)\/[^\s<|]+)/g, 'FILE: <a href="$1" target="_blank" style="color:inherit;text-decoration:underline dotted">$1</a>');
+  return s;
+}
+
+function ansiToHtml(s){
+  const pal = {30:'#767676',31:'#ff5f6d',32:'#56d364',33:'#e3b341',34:'#79c0ff',35:'#d2a8ff',36:'#39c5cf',37:'#f2f2f3',90:'#9c9c9c',91:'#ff7b72',92:'#7ee787',93:'#f2cc60',94:'#a5d6ff',95:'#d2a8ff',96:'#39c5cf',97:'#ffffff'};
+  let open = false;
+  const h = escapeHtml(s);
+  const res = h.replace(/\u001b\[([0-9;]*)m/g, function(m, grp){
+    const codes = (grp === '') ? ['0'] : grp.split(';');
+    let html = '';
+    for(const c of codes){
+      const n = parseInt(c, 10) || 0;
+      if(n === 0){ if(open){ html += '</span>'; open = false; } }
+      else if(pal[n] !== undefined){ if(open){ html += '</span>'; } html += '<span style="color:' + pal[n] + '">'; open = true; }
+    }
+    return html;
+  });
+  return res + (open ? '</span>' : '');
+}
+
+function glyphFor(name,isDir){
+  if(isDir) return '▸';
+  if(name.endsWith('.json')) return '{}';
+  if(name.endsWith('.js')) return 'js';
+  if(name.endsWith('.log')) return '~';
+  return '·';
+}
+
+let fileCount=0, dirCount=0;
+const extCount = { txt:0, tsv:0, js:0, json:0, html:0 };
+const rowByPath = {};
+
+function extOf(name){
+  const m = name.match(/\.([a-z0-9]+)$/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function countTree(node, path){
+  Object.keys(node).forEach(key=>{
+    const val = node[key];
+    if(typeof val === 'object'){
+      dirCount++;
+      countTree(val, path+'/'+key);
+    } else {
+      fileCount++;
+      const ext = extOf(key);
+      if(ext in extCount) extCount[ext]++;
+    }
+  });
+}
+countTree(tree, '');
+
+function buildList(node, path, depth){
+  const ul = document.createElement('ul');
+  ul.className = 'tree' + (depth===0 ? ' root':'');
+  Object.keys(node).sort((a,b)=>{
+    const ad = typeof node[a]==='object', bd = typeof node[b]==='object';
+    if(ad !== bd) return ad ? -1 : 1;
+    const al = a.toLowerCase(), bl = b.toLowerCase();
+    return al < bl ? -1 : (al > bl ? 1 : 0);
+  }).forEach(key=>{
+    const val = node[key];
+    const li = document.createElement('li');
+    li.className='node';
+    const row = document.createElement('div');
+    const isDir = typeof val === 'object';
+    row.className = 'row' + (isDir ? ' dir':'');
+    const full = (path ? path+'/' : '') + key;
+    row.innerHTML = `<span class="glyph">${glyphFor(key,isDir)}</span><span>${key}</span>` + (isDir ? `<span class="cnt">${Object.keys(val).length}</span>` : '');
+    li.appendChild(row);
+    if(isDir){
+      const childWrap = document.createElement('div');
+      childWrap.className='children';
+      childWrap.appendChild(buildList(val, full, depth+1));
+      li.appendChild(childWrap);
+      row.addEventListener('click', ()=>{
+        childWrap.classList.toggle('open');
+        row.querySelector('.glyph').textContent = childWrap.classList.contains('open') ? '▾' : '▸';
+      });
+    } else {
+      rowByPath[full] = row;
+      row.addEventListener('click', ()=> openFile(full, val, row));
+    }
+    ul.appendChild(li);
+  });
+  return ul;
+}
+
+const treePane = document.getElementById('treePane');
+treePane.appendChild(buildList(tree, '', 0));
+treePane.querySelectorAll(':scope > ul.tree > li.node > .children').forEach(c=>{
+  c.classList.add('open');
+  c.previousElementSibling && (c.previousElementSibling.querySelector('.glyph').textContent='▾');
+});
+
+let activeRow = null;
+function openFile(path, raw, row){
+  if(activeRow) activeRow.classList.remove('active');
+  row.classList.add('active'); activeRow = row;
+
+  const sep = raw.indexOf('::');
+  const kind = sep >= 0 ? raw.slice(0, sep) : '';
+  const body = sep >= 0 ? raw.slice(sep + 2) : raw;
+  const emptyHint = document.getElementById('emptyHint');
+  const codeArea = document.getElementById('codeArea');
+  const copyBtn0 = document.getElementById('copyBtn');
+
+  if(kind === 'LINK'){
+    codeArea.style.display='none';
+    emptyHint.style.display='block';
+    emptyHint.textContent = 'Not embedded in this report — opened on disk in a new tab (' + body + '). Only works if this report stays next to its run folder.';
+    try{ window.open(body, '_blank'); }catch(e){}
+    copyBtn0.style.display='inline-block';
+    copyBtn0.textContent='copy';
+    copyBtn0.classList.remove('done');
+    copyBtn0.onclick = async ()=>{
+      try{ await navigator.clipboard.writeText(body); }catch(e){}
+      copyBtn0.textContent='copied ✓';
+      copyBtn0.classList.add('done');
+      setTimeout(()=>{ copyBtn0.textContent='copy'; copyBtn0.classList.remove('done'); }, 1400);
+    };
+    const parts0 = path.split('/');
+    document.getElementById('pathLine').innerHTML = parts0.map((p,i)=> i===parts0.length-1 ? `<span class="file">${p}</span>` : p).join('<span class="sep">/</span>');
+    if(window.innerWidth <= 720){ document.getElementById('treePane').classList.remove('open'); }
+    return;
+  }
+
+  emptyHint.style.display='none';
+  codeArea.style.display='flex';
+
+  const codeEl = document.getElementById('codeEl');
+  const ext = extOf(path);
+  let result;
+  if(ext === 'txt' || ext === 'log' || ext === ''){
+    try{
+      if(body.indexOf('\u001b[') !== -1){
+        result = { value: ansiToHtml(body), language: 'plaintext' };
+      } else {
+        result = { value: highlightPlain(body), language: 'plaintext' };
+      }
+    }catch(e){
+      result = { value: escapeHtml(body), language: null };
+    }
+  } else {
+    try{
+      result = window.hljs
+        ? window.hljs.highlightAuto(body, ['json','javascript','xml','bash','ini','yaml'])
+        : { value: escapeHtml(body), language: null };
+    }catch(e){
+      result = { value: escapeHtml(body), language: null };
+    }
+  }
+  codeEl.className = 'hljs' + (result.language ? ' language-' + result.language : '');
+  codeEl.innerHTML = linkify(result.value);
+
+  const gutter = document.getElementById('gutter');
+  const lineCount = body.split('\n').length;
+  gutter.textContent = Array.from({length:lineCount}, (_,i)=> i+1).join('\n');
+
+  const parts = path.split('/');
+  document.getElementById('pathLine').innerHTML = parts.map((p,i)=> i===parts.length-1 ? `<span class="file">${p}</span>` : p).join('<span class="sep">/</span>');
+
+  const copyBtn = document.getElementById('copyBtn');
+  copyBtn.style.display='inline-block';
+  copyBtn.textContent='copy';
+  copyBtn.classList.remove('done');
+  const copyText = body.indexOf('\u001b[') !== -1 ? body.replace(/\u001b\[[0-9;]*m/g, '') : body;
+  copyBtn.onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(copyText); }catch(e){}
+    copyBtn.textContent='copied ✓';
+    copyBtn.classList.add('done');
+    setTimeout(()=>{ copyBtn.textContent='copy'; copyBtn.classList.remove('done'); }, 1400);
+  };
+
+  if(window.innerWidth <= 720){ document.getElementById('treePane').classList.remove('open'); }
+}
+
+document.getElementById('menuBtn').addEventListener('click', ()=>{
+  document.getElementById('treePane').classList.toggle('open');
+});
+
+const bootLines = [
+  '$ reconly report --target ' + RUN_INFO.domain,
+  'loading run ' + RUN_INFO.runPath.split('/').pop() + ' ...',
+  `indexing ${fileCount} files across ${dirCount} folders ...`,
+  'done.'
+];
+const bootEl = document.getElementById('bootText');
+let li=0, ci=0;
+function typeBoot(){
+  if(li>=bootLines.length){
+    setTimeout(()=>{
+      document.getElementById('boot').style.display='none';
+      const app = document.getElementById('app');
+      app.classList.add('show');
+      animateCount('statTxt', extCount.txt);
+      animateCount('statTsv', extCount.tsv);
+      animateCount('statJs', extCount.js);
+      animateCount('statJson', extCount.json);
+      animateCount('statHtml', extCount.html);
+      animateCount('statAll', fileCount);
+      const defaultPath = 'reconly.log';
+      if(rowByPath[defaultPath]) openFile(defaultPath, tree[defaultPath], rowByPath[defaultPath]);
+    }, 260);
+    return;
+  }
+  const line = bootLines[li];
+  bootEl.innerHTML = bootLines.slice(0,li).join('\n') + (li>0?'\n':'') + line.slice(0,ci) + '<span class="cur"></span>';
+  ci++;
+  if(ci>line.length){ li++; ci=0; setTimeout(typeBoot, 120); }
+  else setTimeout(typeBoot, 16);
+}
+typeBoot();
+
+function animateCount(id, target){
+  const el = document.getElementById(id);
+  let cur=0; const step=Math.max(1,Math.ceil(target/20));
+  const t=setInterval(()=>{
+    cur+=step; if(cur>=target){cur=target; clearInterval(t);}
+    el.textContent=cur;
+  }, 25);
+}
+</script>
+</body>
+</html>
+REPORT_HTML_EOF
+)
+
+generate_report() {
+    local run_dir="$1"
+    (
+        cd "$run_dir" 2>/dev/null || exit 0
+        RUN_DIR_ABS="$(pwd -P)"
+        OUT="$RUN_DIR_ABS/report.html"
+        MAX_BYTES=1048576
+        LOG_MAX_BYTES=8388608
+        LOG_TAIL_LINES=2000
+        LINK_DIRS="js/raw js/formatted js/mapsrc js/deobf js/sourcemaps"
+        tmpd="$(mktemp -d)" || exit 2
+        trap 'rm -rf "$tmpd"' EXIT
+        tmp_tpl="$tmpd/template.html"
+        tmp_entries="$tmpd/entries.ndjson"
+        tmp_link="$tmpd/links.txt"
+        tmp_log="$tmpd/log.txt"
+        : > "$tmp_entries"
+        : > "$tmp_link"
+        printf '%s\n' "$REPORT_TEMPLATE" > "$tmp_tpl"
+        tmarker="$(grep -nxF 'const tree = {};' "$tmp_tpl" | cut -d: -f1)"
+        rmarker="$(grep -nF 'const RUN_INFO = { domain: "target.example.com"' "$tmp_tpl" | cut -d: -f1)"
+        if [ -z "$tmarker" ] || [ -z "$rmarker" ] || [ "$(grep -nxFc 'const tree = {};' "$tmp_tpl" || true)" != "1" ] || [ "$(grep -Fc 'const RUN_INFO = { domain: "target.example.com"' "$tmp_tpl" || true)" != "1" ] || [ "$tmarker" -ge "$rmarker" ]; then
+            exit 2
+        fi
+        RUN_PATH_DISPLAY="$RUN_DIR_ABS"
+        case "$RUN_PATH_DISPLAY" in "$HOME"*) RUN_PATH_DISPLAY="~${RUN_PATH_DISPLAY#$HOME}" ;; esac
+        DOMAIN="$(basename "$(dirname "$RUN_DIR_ABS")")"
+        while IFS= read -r -d '' f; do
+            rel="${f#./}"
+            if [ "$rel" = "report.html" ]; then continue; fi
+            if [ "$rel" = "state/reconly.ansi.log" ]; then continue; fi
+            case "/$rel/" in */state/tmp/*) continue ;; esac
+            is_link=0
+            for ld in $LINK_DIRS; do
+                case "$rel" in
+                    "$ld") is_link=1 ;;
+                    "$ld"/*) is_link=1 ;;
+                esac
+            done
+            if [ "$is_link" -eq 1 ]; then
+                printf '%s\n' "$rel" >> "$tmp_link"
+                continue
+            fi
+            sz="$(wc -c < "$rel" | tr -d ' ')"
+            ext="${rel##*.}"
+            if [ "$ext" = "$rel" ]; then ext=""; fi
+            case "$rel" in
+                *.log)
+                    log_src="$rel"
+                    if [ "$rel" = "reconly.log" ] && [ -s "state/reconly.ansi.log" ]; then
+                        log_src="state/reconly.ansi.log"
+                    fi
+                    if [ "$sz" -gt "$LOG_MAX_BYTES" ]; then
+                        { printf '%s\n' "(reconly-report: log truncated -- showing last $LOG_TAIL_LINES lines)"; tail -n "$LOG_TAIL_LINES" "$log_src"; } > "$tmp_log"
+                    else
+                        cat "$log_src" > "$tmp_log"
+                    fi
+                    jq -n --arg p "$rel" --arg ext "$ext" --rawfile c "$tmp_log" '{path:$p, content:($ext+"::"+$c)}' >> "$tmp_entries" || exit 2
+                    ;;
+                *)
+                    if [ "$sz" -gt "$MAX_BYTES" ]; then continue; fi
+                    if [ "$(LC_ALL=C tr -cd '\000' < "$rel" | wc -c | tr -d ' ')" -gt 0 ]; then continue; fi
+                    jq -n --arg p "$rel" --arg ext "$ext" --rawfile c "$rel" '{path:$p, content:($ext+"::"+$c)}' >> "$tmp_entries" || exit 2
+                    ;;
+            esac
+        done < <(find . -type f -print0 | sort -z)
+        for ld in $LINK_DIRS; do
+            if [ -d "$ld" ]; then
+                find "$ld" -type f | sed 's|^\./||' | LC_ALL=C sort >> "$tmp_link"
+            fi
+        done
+        jq -s '.' "$tmp_entries" > "$tmpd/entries.arr" || exit 2
+        jq -Rn '[inputs | select(length>0) | {path:., link:.}]' "$tmp_link" > "$tmpd/links.arr" || exit 2
+        tree_json="$(jq -c -n --slurpfile es "$tmpd/entries.arr" --slurpfile ls "$tmpd/links.arr" '
+            reduce $es[0][] as $e ({}; setpath($e.path | split("/"); $e.content))
+            | reduce $ls[0][] as $l (. ; setpath($l.path | split("/"); ("LINK::" + $l.link)))
+        ')" || exit 2
+        escaped="$(printf '%s' "$tree_json" | sed 's/</\\u003c/g')"
+        {
+            head -n $((tmarker - 1)) "$tmp_tpl"
+            printf 'const tree = %s;\n' "$escaped"
+            tail -n +$((tmarker + 1)) "$tmp_tpl" | head -n $((rmarker - tmarker - 1))
+            printf 'const RUN_INFO = { domain: "%s", runPath: "%s" };\n' "$DOMAIN" "$RUN_PATH_DISPLAY"
+            tail -n +$((rmarker + 1)) "$tmp_tpl"
+        } > "$OUT" || exit 2
+    ) || return 1
+}
+
 cleanup() {
     rm -rf "$SESSION_DIR/state/tmp" 2>/dev/null || true
     out "${C_W}Session state preserved at $SESSION_DIR/state${C_R}"
 }
 main() {
-    [ -t 6 ] && clear
-    out "${C_K}____________________________________________________________________________________${C_R}"
-    out "${C_K}_____________________________ github.com/Ln0rag/reconly ____________________________${C_R}"
-    out "${C_K}____________________________________________________________________________________${C_R}"
+    if [ -t 6 ]; then
+        clear >&6 2>/dev/null || true
+    fi
     out "${C_MAG}[ $(date +"%I:%M:%S %p") ]${C_R}${C_RED} [~]$ R E C O N L Y${C_R} -d ${C_GRN}$DOMAIN${C_R}"
+    out ""
+    out "Session: $SESSION_DIR"
     check_tools
+    if command -v naabu >/dev/null 2>&1 && ! command -v getcap >/dev/null 2>&1; then
+        out "${C_Y}[INFO] install libcap2-bin to unlock naabu SYN scans without root (sudo apt install libcap2-bin)${C_R}"
+    elif command -v naabu >/dev/null 2>&1 && ! getcap "$(locate_tool naabu)" 2>/dev/null | grep -q cap_net_raw; then
+        out "${C_W}naabu SYN-scan capability setup (one-time), sudo password:${C_R}"
+        if sudo -v 2>/dev/null && sudo setcap cap_net_raw+ep "$(locate_tool naabu)" 2>/dev/null && getcap "$(locate_tool naabu)" 2>/dev/null | grep -q cap_net_raw; then
+            out "${C_GRN}capability installed + verified, naabu runs SYN as your user from now on${C_R}"
+        else
+            out "${C_Y}capability setup failed (nosuid fs / container / declined), sudo-per-run or connect fallback will be used${C_R}"
+        fi
+    fi
     ensure_runtime_deps
     maybe_fresh_restart "$@"
 
     run_stage "Subdomains" st_subdomains || true
-    run_stage "Hosts" st_hosts_lite || true
+    run_stage "Hosts & Port scanning" st_hosts_lite || true
     run_stage "Archive" st_archive || true
     run_stage "Crawl" st_crawl || true
     run_stage "Classify" st_classify_js || true
@@ -2941,22 +3705,38 @@ main() {
 
     cleanup
 
+    for _sf in "$SESSION_DIR"/findings/probes/*.txt "$SESSION_DIR"/findings/secrets/*.txt "$SESSION_DIR"/findings/surface/*.txt; do
+        [ -f "$_sf" ] || continue
+        case "$_sf" in */site-tree.txt|*/body-secrets.txt) continue ;; esac
+        LC_ALL=C sort -u "$_sf" -o "$_sf" 2>/dev/null || true
+    done
+
     out ""
-    out "${C_W}findings/${C_R}"
+    out "${C_W}$SESSION_DIR/${C_R}"
     (
         cd "$SESSION_DIR" 2>/dev/null || exit 0
-        find findings -type d 2>/dev/null | LC_ALL=C sort | while IFS= read -r _td; do
-            [ "$_td" = "findings" ] && continue
+        find . -type d 2>/dev/null | LC_ALL=C sort | while IFS= read -r _td; do
+            [ "$_td" = "." ] && continue
             _tf=$(find "$_td" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
-            _ti=$(awk -v p="$_td" 'BEGIN{n=split(p,a,"/"); for(i=3;i<=n;i++) printf "  "; printf "|_ "}')
+            _ti=$(awk -v p="${_td#./}" 'BEGIN{n=split(p,a,"/"); for(i=2;i<=n;i++) printf "  "; printf "|_ "}')
             out "${_ti}${C_W}${_td##*/}/${C_R} ${C_K}(${_tf} files)${C_R}"
         done
     ) || true
 
-    out ""
-    out "${C_W}Session: $SESSION_DIR${C_R}"
+    if generate_report "$SESSION_DIR"; then
+        if [ "${NOOPEN:-0}" = "1" ]; then
+            out "${C_CYN}Report: $SESSION_DIR/report.html${C_R}"
+        elif command -v brave-browser &>/dev/null; then brave-browser --incognito "$SESSION_DIR/report.html" &>/dev/null 300>&- &
+        elif command -v brave &>/dev/null; then brave --incognito "$SESSION_DIR/report.html" &>/dev/null 300>&- &
+        elif command -v xdg-open &>/dev/null; then xdg-open "$SESSION_DIR/report.html" &>/dev/null 300>&- &
+        elif command -v open &>/dev/null; then open "$SESSION_DIR/report.html" &>/dev/null 300>&- &
+        else out "${C_Y}Report: $SESSION_DIR/report.html${C_R}"; fi
+    else
+        out "${C_Y}[warn] report generation failed${C_R}"
+    fi
     
-    { { command -v notify-send >/dev/null && timeout 5 notify-send "Reconly" "Finished" || command -v kdialog >/dev/null && timeout 5 kdialog --passivepopup "Reconly: Finished" 5 || command -v zenity >/dev/null && timeout 5 zenity --notification --text="Reconly: Finished"; } & f=/usr/share/sounds/freedesktop/stereo/complete.oga; { [ -f "$f" ] && { timeout 5 pw-play "$f" || timeout 5 paplay "$f" || timeout 5 ogg123 -q "$f" || timeout 5 mpv --no-video --really-quiet "$f"; } || timeout 5 canberra-gtk-play -i complete || printf ''; }; wait; } 2>/dev/null
+    { { command -v notify-send >/dev/null && timeout 5 notify-send "Reconly" "Finished" || command -v kdialog >/dev/null && timeout 5 kdialog --passivepopup "Reconly: Finished" 5 || command -v zenity >/dev/null && timeout 5 zenity --notification --text="Reconly: Finished"; } & _npid=$!; f=/usr/share/sounds/freedesktop/stereo/complete.oga; { [ -f "$f" ] && { timeout 5 pw-play "$f" || timeout 5 paplay "$f" || timeout 5 ogg123 -q "$f" || timeout 5 mpv --no-video --really-quiet "$f"; } || timeout 5 canberra-gtk-play -i complete || printf ''; }; wait "$_npid" 2>/dev/null; } 2>/dev/null
 
 }
 main "$@"
+exit 0
