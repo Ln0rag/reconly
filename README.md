@@ -33,7 +33,7 @@ All tools install into `~/github-tools`, kept out of default system PATH, except
 ## Installation
 
 ```
-git clone https://github.com/<your-username>/reconly.git
+git clone https://github.com/Ln0rag/reconly.git
 cd reconly
 chmod +x reconly.sh
 ```
