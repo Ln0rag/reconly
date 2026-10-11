@@ -119,7 +119,3 @@ This tool performs active reconnaissance (port scanning, crawling, parameter pro
 ## Disclaimer
 
 Provided as-is, with no warranty. It downloads and executes a number of third-party open-source tools from their official repositories on first run. Review the install commands in the script for full visibility before running it on a sensitive host.
-
-## License
-
-Add your preferred license here (for example MIT) before publishing.
