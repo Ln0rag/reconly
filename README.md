@@ -1,5 +1,7 @@
 # reconly
+
 >> UNDERDEVELOPMENT
+
 ![screenshot](screenshot.png)
 
 Single-file bash automation pipeline for web application recon and attack-surface discovery. It chains subdomain enumeration, port/service discovery, historical archive mining, JS-aware crawling, deep JavaScript analysis (secrets, sourcemaps, deobfuscation), static code analysis, and lightweight vulnerability probes, then packages everything into a self-contained, browsable HTML report.
